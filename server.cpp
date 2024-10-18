@@ -45,7 +45,6 @@ void receiveFile(int sockfd, struct sockaddr_in& cliaddr) {
     outFile.close();
 }
 
-// Driver code
 int main() {
     int sockfd;
     struct sockaddr_in servaddr, cliaddr;
