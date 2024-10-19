@@ -1,21 +1,21 @@
-CC		= g++
-LD		= g++
-CFLAGS	= -Wall -g
+CC	 	= gcc
+LD	 	= gcc
+CFLAGS	 	= -Wall -g
 
-LDFLAGS	= 
-DEFS 	=
+LDFLAGS	 	= 
+DEFS 	 	=
 
-all:	client server
+all:	sendfile recvfile
 
-server: server.cpp
-	$(CC) $(DEFS) $(CFLAGS) $(LIB) -o server server.cpp
+server: sendfile.cpp
+	$(CC) $(DEFS) $(CFLAGS) $(LIB) -o sendfile sendfile.cpp
 
-client:	client.cpp
-	$(CC) $(DEFS) $(CFLAGS) $(LIB) -o client client.cpp
+client: recvfile.cpp
+	$(CC) $(DEFS) $(CFLAGS) $(LIB) -o recvfile recvfile.cpp
 
 clean:
 	rm -f *.o
 	rm -f *~
 	rm -f core.*
-	rm -f server
-	rm -f client
+	rm -f sendfile
+	rm -f recvfile
