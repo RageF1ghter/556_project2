@@ -14,7 +14,7 @@ make clean
 
 
 ./recvfile -p 18000
-./sendfile -r 127.0.0.1:18000 -f ./testfile.bin
+<br>./sendfile -r 127.0.0.1:18000 -f ./testfile.bin
 ./sendfile -r 127.0.0.1:18000 -f ./testfile_10MB.bin
 ./sendfile -r 127.0.0.1:18000 -f ./testfile_25MB.bin
 
