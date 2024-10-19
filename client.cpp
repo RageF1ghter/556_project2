@@ -29,6 +29,7 @@ struct Packet {
 };
 
 uint16_t calculateChecksum(const Packet& packet) {
+    // unify the checksum as 0
     uint32_t checksum = 0;
     checksum += ntohs(packet.seq_num);
     checksum += ntohs(packet.ack_num);
@@ -55,8 +56,8 @@ void sendFile(const char* filePath, int sockfd, struct sockaddr_in& servaddr) {
     Packet window[WINDOW_SIZE];
     memset(window, 0, sizeof(window)); // Initialize window packets
     char buffer[MAXLINE];
-    int base = 0;   // The sequence number of the oldest unacknowledged packet
-    int seq = 0;    // Next sequence number to use
+    int head = 0;   // The sequence number of the oldest unacknowledged packet
+    int tail = 0;    // Next sequence number to use
     socklen_t len = sizeof(servaddr);
     bool doneReading = false;
     auto now = chrono::steady_clock::now();
@@ -64,17 +65,17 @@ void sendFile(const char* filePath, int sockfd, struct sockaddr_in& servaddr) {
     // Set socket to non-blocking mode
     fcntl(sockfd, F_SETFL, O_NONBLOCK);
 
-    while (!doneReading || base < seq) {
+    while (!doneReading || head < tail) {
         // Send packets within window
-        while (!doneReading && seq < base + WINDOW_SIZE) {
+        while (!doneReading && tail < head + WINDOW_SIZE) {
             // Read a chunk of the file into the buffer
             file.read(buffer, MAXLINE);
             streamsize bytesRead = file.gcount();
 
             if (bytesRead > 0) {
-                Packet& packet = window[seq % WINDOW_SIZE];
+                Packet& packet = window[tail % WINDOW_SIZE];
                 memset(&packet, 0, sizeof(Packet));
-                packet.seq_num = htons(seq);
+                packet.seq_num = htons(tail);
                 packet.ack_num = htons(0);
                 packet.data_length = htons(bytesRead);
                 memcpy(packet.data, buffer, bytesRead);
@@ -88,10 +89,11 @@ void sendFile(const char* filePath, int sockfd, struct sockaddr_in& servaddr) {
                     perror("sendto failed");
                     // Handle error
                 } else {
-                    cout << "Sent packet seq: " << seq << endl;
+                    cout << "Sent packet tail: " << tail <<  endl;
+                    cout << bytes_sent << "bytes sent" << endl;
                 }
 
-                seq++;
+                tail++;
             } else {
                 // No more data to read
                 doneReading = true;
@@ -114,6 +116,7 @@ void sendFile(const char* filePath, int sockfd, struct sockaddr_in& servaddr) {
             // Handle error
         } else if (rv == 0) {
             // Timeout occurred, check for packet timeouts
+            cout<<"recv timeout, check the sent"<<endl;
         } else {
             if (FD_ISSET(sockfd, &readfds)) {
                 // Data is available to read
@@ -124,6 +127,7 @@ void sendFile(const char* filePath, int sockfd, struct sockaddr_in& servaddr) {
                     ack_packet.seq_num = ntohs(ack_packet.seq_num);
                     ack_packet.ack_num = ntohs(ack_packet.ack_num);
                     ack_packet.checksum = ntohs(ack_packet.checksum);
+                    
 
                     uint16_t calc_checksum = calculateChecksum(ack_packet);
                     if (ack_packet.checksum == calc_checksum) {
@@ -132,13 +136,13 @@ void sendFile(const char* filePath, int sockfd, struct sockaddr_in& servaddr) {
                             int seq_index = ack_packet.seq_num % WINDOW_SIZE;
                             window[seq_index].ack_num = 1;
 
-                            // Slide window if base packet is acknowledged
-                            while (window[base % WINDOW_SIZE].ack_num == 1 && base < seq) {
-                                base++;
+                            // Slide window if head packet is acknowledged
+                            while (window[head % WINDOW_SIZE].ack_num == 1 && head < tail) {
+                                head++;
                             }
                         } else if (ack_packet.ack_num == 2) {
                             // Packet corrupted, retransmit
-                            cout << "Packet corrupted, retransmit seq: " << ack_packet.seq_num << endl;
+                            cout << "Packet corrupted, retransmit tail: " << ack_packet.seq_num << endl;
                             int seq_index = ack_packet.seq_num % WINDOW_SIZE;
                             Packet& packet_to_resend = window[seq_index];
                             packet_to_resend.send_time = chrono::steady_clock::now();
@@ -146,7 +150,7 @@ void sendFile(const char* filePath, int sockfd, struct sockaddr_in& servaddr) {
                             if (bytes_sent == -1) {
                                 perror("sendto failed");
                             } else {
-                                cout << "Resent packet seq: " << ack_packet.seq_num << endl;
+                                cout << "Resent packet tail: " << ack_packet.seq_num << endl;
                             }
                         }
                     } else {
@@ -160,7 +164,7 @@ void sendFile(const char* filePath, int sockfd, struct sockaddr_in& servaddr) {
 
         // Check for timeouts and retransmit if necessary
         now = chrono::steady_clock::now();
-        for (int i = base; i < seq; i++) {
+        for (int i = head; i < tail; i++) {
             Packet& packet = window[i % WINDOW_SIZE];
             if (packet.ack_num != 1) {
                 auto time_since_sent = chrono::duration_cast<chrono::milliseconds>(now - packet.send_time);
@@ -171,7 +175,7 @@ void sendFile(const char* filePath, int sockfd, struct sockaddr_in& servaddr) {
                     if (bytes_sent == -1) {
                         perror("sendto failed");
                     } else {
-                        cout << "Timeout, retransmitted packet seq: " << ntohs(packet.seq_num) << endl;
+                        cout << "Timeout, retransmitted packet tail: " << ntohs(packet.seq_num) << endl;
                     }
                 }
             }
@@ -181,7 +185,7 @@ void sendFile(const char* filePath, int sockfd, struct sockaddr_in& servaddr) {
     // Send an end-of-file packet
     Packet eof_packet;
     memset(&eof_packet, 0, sizeof(Packet));
-    eof_packet.seq_num = htons(seq);
+    eof_packet.seq_num = htons(tail);
     eof_packet.ack_num = htons(0);
     eof_packet.data_length = 0; // No data
     eof_packet.checksum = htons(calculateChecksum(eof_packet));
@@ -229,7 +233,7 @@ void sendFile(const char* filePath, int sockfd, struct sockaddr_in& servaddr) {
                     ack_packet.checksum = ntohs(ack_packet.checksum);
 
                     uint16_t calc_checksum = calculateChecksum(ack_packet);
-                    if (ack_packet.checksum == calc_checksum && ack_packet.seq_num == seq && ack_packet.ack_num == 1) {
+                    if (ack_packet.checksum == calc_checksum && ack_packet.seq_num == tail && ack_packet.ack_num == 1) {
                         cout << "Received ACK for EOF packet" << endl;
                         eof_acknowledged = true;
                         break;
