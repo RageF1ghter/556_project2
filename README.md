@@ -21,3 +21,5 @@ make clean
 <br>check contents:
 <br>md5sum testfile.bin testfile.bin.recv
 <br>md5sum testfile_10MB.bin testfile_10MB.bin.recv
+
+<br> ./sendfile -r opal.clear.rice.edu:18000 -f ./testfile.bin
