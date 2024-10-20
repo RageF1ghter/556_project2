@@ -12,7 +12,7 @@
 #include <fcntl.h>      // For fcntl()
 #include <sys/select.h> // For select()
 
-#define PORT 18020
+#define PORT 8080
 #define MAXLINE 1024
 #define WINDOW_SIZE 5
 #define TIMEOUT_MS 1000
@@ -29,20 +29,17 @@ struct Packet
     char data[MAXLINE];                         // Data payload
 };
 
-uint16_t calculateChecksum(const Packet &packet)
-{
+uint16_t calculateChecksum(const Packet& packet) {
     // unify the checksum as 0
     uint32_t checksum = 0;
-    checksum += ntohs(packet.seq_num);
-    checksum += ntohs(packet.ack_num);
-    checksum += ntohs(packet.data_length);
-    for (size_t i = 0; i < ntohs(packet.data_length); i++)
-    {
+    checksum += packet.seq_num;
+    checksum += packet.ack_num;
+    checksum += packet.data_length;
+    for (size_t i = 0; i < ntohs(packet.data_length); i++) {
         checksum += static_cast<uint8_t>(packet.data[i]);
     }
     // Add carries
-    while (checksum >> 16)
-    {
+    while (checksum >> 16) {
         checksum = (checksum & 0xFFFF) + (checksum >> 16);
     }
     return static_cast<uint16_t>(~checksum);
@@ -77,21 +74,30 @@ void receiveFile(int sockfd, struct sockaddr_in &cliaddr)
         ssize_t n = recvfrom(sockfd, &recv_packet, sizeof(Packet), 0, (struct sockaddr *)&cliaddr, &len);
         if (n == -1)
         {
-            perror("recvfrom failed");
-            continue;
+            if (errno == EWOULDBLOCK || errno == EAGAIN)
+            {
+                // No data available, continue
+                continue;
+            }
+            else
+            {
+                perror("recvfrom failed");
+                // Handle actual errors appropriately
+                exit(EXIT_FAILURE); // Or handle the error as needed
+            }
         }
+        
 
         // convert to os format
         recv_packet.seq_num = ntohs(recv_packet.seq_num);
         recv_packet.ack_num = ntohs(recv_packet.ack_num);
         recv_packet.checksum = ntohs(recv_packet.checksum);
         recv_packet.data_length = ntohs(recv_packet.data_length);
-
+        
         // verify the checksum
         if (recv_packet.checksum == calculateChecksum(recv_packet))
         {
             // check the packet's order
-            /// TODO: FIX THE DUPLICATE LOGIC
             if (recv_packet.seq_num > head + WINDOW_SIZE || recv_packet.seq_num < head || window[recv_packet.seq_num % WINDOW_SIZE].data_length != 0)
             {
                 cout << "packet out of the window or duplicated";
@@ -102,6 +108,7 @@ void receiveFile(int sockfd, struct sockaddr_in &cliaddr)
                 // set the packet to acked
                 recv_packet.ack_num = 1;
                 window[recv_packet.seq_num % WINDOW_SIZE] = recv_packet;
+                cout<<"packet received, seq: " << recv_packet.seq_num << endl;
 
                 // check the window
                 for (int i = head; i < head + WINDOW_SIZE; i++)
@@ -110,6 +117,7 @@ void receiveFile(int sockfd, struct sockaddr_in &cliaddr)
                     // the head packet hasn't been received yet
                     if (headPacket.ack_num == 0)
                     {
+                        cout<<"head hasn't received yet"<<endl;
                         break;
                     }
                     // head packet ready
@@ -121,29 +129,36 @@ void receiveFile(int sockfd, struct sockaddr_in &cliaddr)
                         {
                             cout << "File is received" << endl;
                             outputFile.close();
+                            finished = true;
                         }
                         else
                         {
+
                             outputFile.write(headPacket.data, headPacket.data_length);
+                            cout<<"write successful"<<endl;
                         }
+
                         // Send to ack packet with tail and ack info only
                         Packet ack_packet;
-                        ack_packet.ack_num = 1;
-                        ack_packet.seq_num = headPacket.seq_num;
-                        ack_packet.checksum = calculateChecksum(ack_packet);
+                        
+                        ack_packet.ack_num = htons(1);
+                        ack_packet.seq_num = htons(headPacket.seq_num);
+                        ack_packet.checksum = htons(calculateChecksum(ack_packet));
 
                         sendto(sockfd, &ack_packet, sizeof(Packet), 0, (struct sockaddr *)&cliaddr, len);
-
+                        cout<<"ack back to the sender"<<endl;
                         // update the window parameters
                         head++;
                     }
+                    
                     // head packet is corrupted
                     else if (headPacket.ack_num == 2){
                         // Send to ack packet with tail and ack info only
                         Packet ack_packet;
-                        ack_packet.ack_num = 2;
-                        ack_packet.seq_num = headPacket.seq_num;
-                        ack_packet.checksum = calculateChecksum(ack_packet);
+
+                        ack_packet.ack_num = htons(2);
+                        ack_packet.seq_num = htons(headPacket.seq_num);
+                        ack_packet.checksum = htons(calculateChecksum(ack_packet));
 
                         sendto(sockfd, &ack_packet, sizeof(Packet), 0, (struct sockaddr *)&cliaddr, len);
                     }
@@ -153,6 +168,13 @@ void receiveFile(int sockfd, struct sockaddr_in &cliaddr)
         // packet corrupted, retransmit
         else
         {
+            cout<<"packet corrupt"<<recv_packet.checksum<<" "<<calculateChecksum(recv_packet)<<endl;
+            Packet ack_packet;
+            ack_packet.ack_num = 2;
+            ack_packet.seq_num = recv_packet.seq_num;
+            ack_packet.checksum = calculateChecksum(ack_packet);
+
+            sendto(sockfd, &ack_packet, sizeof(Packet), 0, (struct sockaddr *)&cliaddr, len);
         }
     }
 }

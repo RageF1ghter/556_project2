@@ -5,17 +5,17 @@ CFLAGS	= -Wall -g
 LDFLAGS	= 
 DEFS 	=
 
-all:	client server
+all:	receiver sender
 
-server: server.cpp
-	$(CC) $(DEFS) $(CFLAGS) $(LIB) -o server server.cpp
+sender: sender.cpp
+	$(CC) $(DEFS) $(CFLAGS) $(LIB) -o sender sender.cpp
 
-client:	client.cpp
-	$(CC) $(DEFS) $(CFLAGS) $(LIB) -o client client.cpp
+receiver:	receiver.cpp
+	$(CC) $(DEFS) $(CFLAGS) $(LIB) -o receiver receiver.cpp
 
 clean:
 	rm -f *.o
 	rm -f *~
 	rm -f core.*
-	rm -f server
-	rm -f client
+	rm -f sender
+	rm -f receiver

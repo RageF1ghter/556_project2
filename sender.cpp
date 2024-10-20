@@ -14,7 +14,7 @@
 
 using namespace std;
 
-#define PORT           18020
+#define PORT           8080
 #define MAXLINE        1024
 #define WINDOW_SIZE    5
 #define TIMEOUT_MS     1000
@@ -31,9 +31,9 @@ struct Packet {
 uint16_t calculateChecksum(const Packet& packet) {
     // unify the checksum as 0
     uint32_t checksum = 0;
-    checksum += ntohs(packet.seq_num);
-    checksum += ntohs(packet.ack_num);
-    checksum += ntohs(packet.data_length);
+    checksum += packet.seq_num;
+    checksum += packet.ack_num;
+    checksum += packet.data_length;
     for (size_t i = 0; i < ntohs(packet.data_length); i++) {
         checksum += static_cast<uint8_t>(packet.data[i]);
     }
@@ -73,15 +73,24 @@ void sendFile(const char* filePath, int sockfd, struct sockaddr_in& servaddr) {
             streamsize bytesRead = file.gcount();
 
             if (bytesRead > 0) {
+                // initilize the packet
                 Packet& packet = window[tail % WINDOW_SIZE];
                 memset(&packet, 0, sizeof(Packet));
-                packet.seq_num = htons(tail);
-                packet.ack_num = htons(0);
-                packet.data_length = htons(bytesRead);
+
+                // set the packet
+                packet.seq_num = tail;
+                packet.ack_num = 0;
+                packet.data_length = bytesRead;
                 memcpy(packet.data, buffer, bytesRead);
                 packet.checksum = 0;
-                packet.checksum = htons(calculateChecksum(packet));
+                packet.checksum = calculateChecksum(packet);
                 packet.send_time = chrono::steady_clock::now();
+
+                // convert to net fromat
+                packet.ack_num = htons(packet.ack_num);
+                packet.checksum = htons(packet.checksum);
+                packet.seq_num = htons(packet.seq_num);
+                packet.data_length = htons(packet.data_length);
 
                 // Send the packet
                 ssize_t bytes_sent = sendto(sockfd, &packet, sizeof(Packet), 0, (const struct sockaddr*)&servaddr, len);
@@ -128,6 +137,7 @@ void sendFile(const char* filePath, int sockfd, struct sockaddr_in& servaddr) {
                     ack_packet.ack_num = ntohs(ack_packet.ack_num);
                     ack_packet.checksum = ntohs(ack_packet.checksum);
                     
+                    cout<<"receive ack, seq: "<<ack_packet.seq_num<<endl;
 
                     uint16_t calc_checksum = calculateChecksum(ack_packet);
                     if (ack_packet.checksum == calc_checksum) {
