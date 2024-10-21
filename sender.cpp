@@ -11,6 +11,7 @@
 #include <chrono>
 #include <fcntl.h>      // For fcntl()
 #include <sys/select.h> // For select()
+#include <unordered_map>
 
 using namespace std;
 
@@ -44,6 +45,20 @@ uint16_t calculateChecksum(const Packet& packet) {
     return static_cast<uint16_t>(~checksum);
 }
 
+void encode(Packet& sendPacket){
+    sendPacket.seq_num = htons(sendPacket.seq_num);
+    sendPacket.ack_num = htons(sendPacket.ack_num);
+    sendPacket.checksum = htons(sendPacket.checksum);
+    sendPacket.data_length = htons(sendPacket.data_length);
+}
+
+void decode(Packet& recvPacket){
+    recvPacket.seq_num = ntohs(recvPacket.seq_num);
+    recvPacket.ack_num = ntohs(recvPacket.ack_num);
+    recvPacket.checksum = ntohs(recvPacket.checksum);
+    recvPacket.data_length = ntohs(recvPacket.data_length);
+}
+
 // Function to send a file over UDP
 void sendFile(const char* filePath, int sockfd, struct sockaddr_in& servaddr) {
     // Open the file
@@ -58,9 +73,11 @@ void sendFile(const char* filePath, int sockfd, struct sockaddr_in& servaddr) {
     char buffer[MAXLINE];
     int head = 0;   // The sequence number of the oldest unacknowledged packet
     int tail = 0;    // Next sequence number to use
+    unordered_map<int, bool> isAcked;   // track the packet is acked or not
     socklen_t len = sizeof(servaddr);
     bool doneReading = false;
     auto now = chrono::steady_clock::now();
+
 
     // Set socket to non-blocking mode
     fcntl(sockfd, F_SETFL, O_NONBLOCK);
@@ -82,15 +99,11 @@ void sendFile(const char* filePath, int sockfd, struct sockaddr_in& servaddr) {
                 packet.ack_num = 0;
                 packet.data_length = bytesRead;
                 memcpy(packet.data, buffer, bytesRead);
-                packet.checksum = 0;
                 packet.checksum = calculateChecksum(packet);
                 packet.send_time = chrono::steady_clock::now();
 
                 // convert to net fromat
-                packet.ack_num = htons(packet.ack_num);
-                packet.checksum = htons(packet.checksum);
-                packet.seq_num = htons(packet.seq_num);
-                packet.data_length = htons(packet.data_length);
+                encode(packet);
 
                 // Send the packet
                 ssize_t bytes_sent = sendto(sockfd, &packet, sizeof(Packet), 0, (const struct sockaddr*)&servaddr, len);
@@ -98,8 +111,10 @@ void sendFile(const char* filePath, int sockfd, struct sockaddr_in& servaddr) {
                     perror("sendto failed");
                     // Handle error
                 } else {
+                    isAcked[packet.seq_num] = false;
                     cout << "Sent packet tail: " << tail <<  endl;
-                    cout << bytes_sent << "bytes sent" << endl;
+
+                    // cout << bytes_sent << "bytes sent" << endl;
                 }
 
                 tail++;
@@ -132,25 +147,42 @@ void sendFile(const char* filePath, int sockfd, struct sockaddr_in& servaddr) {
                 Packet ack_packet;
                 ssize_t n = recvfrom(sockfd, &ack_packet, sizeof(Packet), 0, (struct sockaddr*)&servaddr, &len);
                 if (n > 0) {
-                    // Convert fields from network byte order
-                    ack_packet.seq_num = ntohs(ack_packet.seq_num);
-                    ack_packet.ack_num = ntohs(ack_packet.ack_num);
-                    ack_packet.checksum = ntohs(ack_packet.checksum);
-                    
-                    cout<<"receive ack, seq: "<<ack_packet.seq_num<<endl;
+                    // Convert packet to os order
+                    decode(ack_packet);
 
                     uint16_t calc_checksum = calculateChecksum(ack_packet);
                     if (ack_packet.checksum == calc_checksum) {
                         if (ack_packet.ack_num == 1) {
-                            cout << "Received ACK for packet: " << ack_packet.seq_num << endl;
-                            int seq_index = ack_packet.seq_num % WINDOW_SIZE;
-                            window[seq_index].ack_num = 1;
+                            cout << "Received ACK for packet " << ack_packet.seq_num << endl;
 
-                            // Slide window if head packet is acknowledged
-                            while (window[head % WINDOW_SIZE].ack_num == 1 && head < tail) {
-                                head++;
+                            /// TODO: verify if this is the head packet or ack outside the window?
+                            // Duplicate Ack packet, ignore
+                            if(isAcked[ack_packet.seq_num] == true){
+                                cout<<"Duplicate Ack, seq: "<<ack_packet.seq_num<<endl;
                             }
-                        } else if (ack_packet.ack_num == 2) {
+                            // Ack packet in the window, update
+                            else
+                            {
+                                // update the window
+                                window[ack_packet.seq_num % WINDOW_SIZE].ack_num = 1;
+
+                                // Slide window if head packet is acknowledged
+                                while (window[head % WINDOW_SIZE].ack_num == 1 && head < tail) {
+                                    head++;
+                                }
+                                cout<< "Window updated, window: ";
+                                for(int i = 0; i < WINDOW_SIZE; i++){
+                                    cout<<ntohs(window[i].seq_num)<<" ";
+                                }
+                                cout<<endl;
+                                
+                            }
+                            
+                            
+                            
+                        } 
+                        else if (ack_packet.ack_num == 2 && ack_packet.seq_num >= head && ack_packet.seq_num < tail) 
+                        {
                             // Packet corrupted, retransmit
                             cout << "Packet corrupted, retransmit tail: " << ack_packet.seq_num << endl;
                             int seq_index = ack_packet.seq_num % WINDOW_SIZE;
@@ -162,6 +194,9 @@ void sendFile(const char* filePath, int sockfd, struct sockaddr_in& servaddr) {
                             } else {
                                 cout << "Resent packet tail: " << ack_packet.seq_num << endl;
                             }
+                        } else{
+                            cout<<"current window" << head <<", "<<tail-1;
+                            cout << " ack outside the window, seq: "<< ack_packet.seq_num<<endl;
                         }
                     } else {
                         cout << "Received corrupted ACK packet" << endl;
