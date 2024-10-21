@@ -11,6 +11,7 @@
 #include <chrono>
 #include <fcntl.h>      // For fcntl()
 #include <sys/select.h> // For select()
+#include <unordered_map>
 
 #define PORT 8080
 #define MAXLINE 1024
@@ -74,6 +75,7 @@ void receiveFile(int sockfd, struct sockaddr_in &cliaddr)
     socklen_t len = sizeof(cliaddr);
     bool finished = false;
     Packet window[WINDOW_SIZE];
+    unordered_map<int, bool> isWriten;   // track the writen packet (seq num, T/F)
     memset(window, 0, sizeof(window)); // Initialize window packets
     int head = 0;                      // The oldest unacknowledged packet
     // int tail = 0;                      // The leatest packet to write
@@ -125,17 +127,21 @@ void receiveFile(int sockfd, struct sockaddr_in &cliaddr)
                 // check the window
                 for (int i = head; i < head + WINDOW_SIZE; i++)
                 {
-                    Packet headPacket = window[i % WINDOW_SIZE];
+                    int index = i % WINDOW_SIZE;
+                    Packet headPacket = window[index];
+                    // check if the isWriten map has seen this packet
+                    if(isWriten.find(headPacket.seq_num) == isWriten.end()){
+                        isWriten[index] = false;
+                    }
                     // the head packet hasn't been received yet
                     if (headPacket.ack_num == 0)
                     {
-                        cout<<"head hasn't received yet"<<endl;
+                        cout<<"head hasn't received yet, seq: "<< head << endl;
                         break;
                     }
-                    // head packet ready
-                    else if (headPacket.ack_num == 1)
+                    // head packet ready and hasn't been writen
+                    else if (headPacket.ack_num == 1 && isWriten[headPacket.seq_num] == false)
                     {
-                        // write the packet
                         // end of file
                         if (headPacket.data_length == 0)
                         {
@@ -143,8 +149,10 @@ void receiveFile(int sockfd, struct sockaddr_in &cliaddr)
                             outputFile.close();
                             finished = true;
                         }
+                        // write the packet
                         else
                         {
+                            isWriten[index] = true;
                             outputFile.write(headPacket.data, headPacket.data_length);
                             cout<<"write successful"<<endl;
                         }
@@ -161,9 +169,13 @@ void receiveFile(int sockfd, struct sockaddr_in &cliaddr)
                         encode(ack_packet);
 
                         sendto(sockfd, &ack_packet, sizeof(Packet), 0, (struct sockaddr *)&cliaddr, len);
-                        cout<<"ack back to the sender"<<endl;
+                        cout<<"send ack back to the sender, seq: " << headPacket.seq_num<<endl;
                         // update the window parameters
                         head++;
+                    }
+                    // The head package has been writen, duplicate packet, ignore
+                    else if (headPacket.ack_num == 1 && isWriten[headPacket.seq_num] == true){
+                        continue;
                     }
                     
                     // head packet is corrupted
