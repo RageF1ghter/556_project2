@@ -36,7 +36,7 @@ uint16_t calculateChecksum(const Packet& packet) {
     checksum += packet.seq_num;
     checksum += packet.ack_num;
     checksum += packet.data_length;
-    for (size_t i = 0; i < ntohs(packet.data_length); i++) {
+    for (size_t i = 0; i < packet.data_length; i++) {
         checksum += static_cast<uint8_t>(packet.data[i]);
     }
     // Add carries
@@ -105,7 +105,6 @@ void receiveFile(int sockfd, struct sockaddr_in &cliaddr)
             }
         }
         
-
         // convert to os format
         decode(recv_packet);
 
@@ -127,8 +126,13 @@ void receiveFile(int sockfd, struct sockaddr_in &cliaddr)
                 cout<<"packet valid, seq: " << recv_packet.seq_num << endl;
 
                 // check the window
+                cout<<"check the window"<<endl;
                 for (int i = head; i < head + WINDOW_SIZE; i++)
                 {
+                    for(int i = 0; i < WINDOW_SIZE; i++){
+                        cout<<window[i].seq_num<<" ";
+                    }
+                    cout<<endl;
                     int index = i % WINDOW_SIZE;
                     Packet headPacket = window[index];
                     // check if the isWriten map has seen this packet
@@ -150,6 +154,20 @@ void receiveFile(int sockfd, struct sockaddr_in &cliaddr)
                             cout << "File is received" << endl;
                             outputFile.close();
                             finished = true;
+                            // Set the ack packet
+                            Packet ack_packet;
+                            memset(&ack_packet, 0, sizeof(Packet));
+                            ack_packet.ack_num = 1;
+                            ack_packet.seq_num = headPacket.seq_num;
+                            ack_packet.checksum = calculateChecksum(ack_packet);
+                            ack_packet.data_length = 0;
+                            
+                            // convert to net format
+                            encode(ack_packet);
+
+                            sendto(sockfd, &ack_packet, sizeof(Packet), 0, (struct sockaddr *)&cliaddr, len);
+                            cout<<"eof ack sent"<<endl;
+                            break;
                         }
                         // write the packet
                         else
@@ -174,7 +192,7 @@ void receiveFile(int sockfd, struct sockaddr_in &cliaddr)
                         cout<<"send ack back to the sender, seq: " << headPacket.seq_num<<endl;
                         // update the window parameters
                         head++;
-                        
+                        continue;
                     }
                     
                     // The head package has been writen, duplicate packet, ignore
@@ -206,7 +224,7 @@ void receiveFile(int sockfd, struct sockaddr_in &cliaddr)
                         ack_packet.data_length = 0;
                         
                         // convert to net format
-                        decode(ack_packet);
+                        encode(ack_packet);
 
                         sendto(sockfd, &ack_packet, sizeof(Packet), 0, (struct sockaddr *)&cliaddr, len);
                     }
@@ -226,7 +244,7 @@ void receiveFile(int sockfd, struct sockaddr_in &cliaddr)
             ack_packet.data_length = 0;
             
             // convert to net format
-            decode(ack_packet);
+            encode(ack_packet);
 
             sendto(sockfd, &ack_packet, sizeof(Packet), 0, (struct sockaddr *)&cliaddr, len);
         }
