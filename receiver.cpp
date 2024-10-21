@@ -45,6 +45,21 @@ uint16_t calculateChecksum(const Packet& packet) {
     return static_cast<uint16_t>(~checksum);
 }
 
+void encode(Packet& sendPacket){
+    sendPacket.seq_num = htons(sendPacket.seq_num);
+    sendPacket.ack_num = htons(sendPacket.ack_num);
+    sendPacket.checksum = htons(sendPacket.checksum);
+    sendPacket.data_length = htons(sendPacket.data_length);
+}
+
+void decode(Packet& recvPacket){
+    recvPacket.seq_num = ntohs(recvPacket.seq_num);
+    recvPacket.ack_num = ntohs(recvPacket.ack_num);
+    recvPacket.checksum = ntohs(recvPacket.checksum);
+    recvPacket.data_length = ntohs(recvPacket.data_length);
+}
+
+
 void receiveFile(int sockfd, struct sockaddr_in &cliaddr)
 {
     // Open the file to save received data
@@ -89,10 +104,7 @@ void receiveFile(int sockfd, struct sockaddr_in &cliaddr)
         
 
         // convert to os format
-        recv_packet.seq_num = ntohs(recv_packet.seq_num);
-        recv_packet.ack_num = ntohs(recv_packet.ack_num);
-        recv_packet.checksum = ntohs(recv_packet.checksum);
-        recv_packet.data_length = ntohs(recv_packet.data_length);
+        decode(recv_packet);
         
         // verify the checksum
         if (recv_packet.checksum == calculateChecksum(recv_packet))
@@ -133,17 +145,20 @@ void receiveFile(int sockfd, struct sockaddr_in &cliaddr)
                         }
                         else
                         {
-
                             outputFile.write(headPacket.data, headPacket.data_length);
                             cout<<"write successful"<<endl;
                         }
 
-                        // Send to ack packet with tail and ack info only
+                        // Set the ack packet
                         Packet ack_packet;
+                        memset(&ack_packet, 0, sizeof(Packet));
+                        ack_packet.ack_num = 1;
+                        ack_packet.seq_num = headPacket.seq_num;
+                        ack_packet.checksum = calculateChecksum(ack_packet);
+                        ack_packet.data_length = 0;
                         
-                        ack_packet.ack_num = htons(1);
-                        ack_packet.seq_num = htons(headPacket.seq_num);
-                        ack_packet.checksum = htons(calculateChecksum(ack_packet));
+                        // convert to net format
+                        encode(ack_packet);
 
                         sendto(sockfd, &ack_packet, sizeof(Packet), 0, (struct sockaddr *)&cliaddr, len);
                         cout<<"ack back to the sender"<<endl;
@@ -153,12 +168,16 @@ void receiveFile(int sockfd, struct sockaddr_in &cliaddr)
                     
                     // head packet is corrupted
                     else if (headPacket.ack_num == 2){
-                        // Send to ack packet with tail and ack info only
+                        // Set the ack packet
                         Packet ack_packet;
-
-                        ack_packet.ack_num = htons(2);
-                        ack_packet.seq_num = htons(headPacket.seq_num);
-                        ack_packet.checksum = htons(calculateChecksum(ack_packet));
+                        memset(&ack_packet, 0, sizeof(Packet));
+                        ack_packet.ack_num = 2;
+                        ack_packet.seq_num = headPacket.seq_num;
+                        ack_packet.checksum = calculateChecksum(ack_packet);
+                        ack_packet.data_length = 0;
+                        
+                        // convert to net format
+                        decode(ack_packet);
 
                         sendto(sockfd, &ack_packet, sizeof(Packet), 0, (struct sockaddr *)&cliaddr, len);
                     }
@@ -169,10 +188,16 @@ void receiveFile(int sockfd, struct sockaddr_in &cliaddr)
         else
         {
             cout<<"packet corrupt"<<recv_packet.checksum<<" "<<calculateChecksum(recv_packet)<<endl;
+            // Set the ack packet
             Packet ack_packet;
+            memset(&ack_packet, 0, sizeof(Packet));
             ack_packet.ack_num = 2;
             ack_packet.seq_num = recv_packet.seq_num;
             ack_packet.checksum = calculateChecksum(ack_packet);
+            ack_packet.data_length = 0;
+            
+            // convert to net format
+            decode(ack_packet);
 
             sendto(sockfd, &ack_packet, sizeof(Packet), 0, (struct sockaddr *)&cliaddr, len);
         }
