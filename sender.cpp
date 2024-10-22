@@ -103,19 +103,21 @@ void sendFile(const char* filePath, int sockfd, struct sockaddr_in& servaddr) {
             packet.checksum = calculateChecksum(packet);
             packet.send_time = chrono::steady_clock::now();
 
-            // Store the packet for potential retransmission
+            // Store the packet for potential retransmission (in host byte order)
             sent_packets[packet.seq_num] = packet;
 
+            // Prepare a copy for sending
+            Packet send_packet = packet; // Copy to avoid modifying the original
             // Convert to network byte order
-            encode(packet);
+            encode(send_packet);
 
             // Send the packet
-            ssize_t bytes_sent = sendto(sockfd, &packet, sizeof(Packet), 0, (const struct sockaddr*)&servaddr, len);
+            ssize_t bytes_sent = sendto(sockfd, &send_packet, sizeof(Packet), 0, (const struct sockaddr*)&servaddr, len);
             if (bytes_sent == -1) {
                 perror("sendto failed");
                 // Handle error
             } else {
-                cout << "Sent packet seq_num: " << next_seq_num << endl;
+                cout << "Sent packet seq_num: " << packet.seq_num << endl;
             }
 
             next_seq_num++;
@@ -143,9 +145,11 @@ void sendFile(const char* filePath, int sockfd, struct sockaddr_in& servaddr) {
                 if (time_since_sent.count() >= TIMEOUT_MS) {
                     // Retransmit packet
                     pkt.send_time = now;
+                    // Prepare a copy for sending
+                    Packet resend_pkt = pkt; // Copy to avoid modifying the original
                     // Convert to network byte order
-                    encode(pkt);
-                    ssize_t bytes_sent = sendto(sockfd, &pkt, sizeof(Packet), 0, (const struct sockaddr*)&servaddr, len);
+                    encode(resend_pkt);
+                    ssize_t bytes_sent = sendto(sockfd, &resend_pkt, sizeof(Packet), 0, (const struct sockaddr*)&servaddr, len);
                     if (bytes_sent == -1) {
                         perror("sendto failed");
                     } else {
