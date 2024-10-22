@@ -5,16 +5,16 @@
 #include <arpa/inet.h>
 #include <unistd.h>
 #include <cstring>
-#include <getopt.h>
 #include <map>
-#include <sys/stat.h>
+#include <getopt.h>
 
 using namespace std;
 
-#define MAX_DATA_SIZE 512  // Each frame carries up to 512 bytes
-#define MAX_FRAME_SIZE 522  // Frame size: headers + data + checksum
+#define MAX_DATA_SIZE 512
+#define MAX_FRAME_SIZE 522
 #define ACK_SIZE 6
-#define WINDOW_SIZE 5  // Sliding window size
+#define WINDOW_SIZE 5
+#define TIMEOUT_MS 500
 
 enum PacketType {
     FILENAME = 1,
@@ -22,55 +22,14 @@ enum PacketType {
     END_OF_TRANSFER = 3
 };
 
-// Simple checksum function
-unsigned char checksum(const unsigned char *frame, int count) {
-    unsigned long sum = 0;
-    while (count--) {
-        sum += *frame++;
-        if (sum & 0xFF00) {
-            sum &= 0xFF;
-            sum++;
-        }
-    }
-    return (unsigned char)(sum & 0xFF);
-}
-
-// Read data frame and verify checksum
-bool read_frame(PacketType &pkt_type, int &seq_num, unsigned char *data, int &data_size, const unsigned char *frame) {
-    pkt_type = static_cast<PacketType>(frame[0]);
-    uint32_t net_seq_num;
-    memcpy(&net_seq_num, frame + 1, 4);  // Read sequence number
-    seq_num = ntohl(net_seq_num);
-
-    uint32_t net_data_size;
-    memcpy(&net_data_size, frame + 5, 4);  // Read data size
-    data_size = ntohl(net_data_size);
-
-    memcpy(data, frame + 9, data_size);  // Read data
-    unsigned char received_checksum = frame[data_size + 9];
-    unsigned char calculated_checksum = checksum(frame, data_size + 9);
-
-    // Return true if checksum does not match
-    return received_checksum != calculated_checksum;
-}
-
-// Create ACK
-void create_ack(int seq_num, unsigned char *ack, bool error) {
-    ack[0] = error ? 0x0 : 0x1;
-    uint32_t net_seq_num = htonl(seq_num);
-    memcpy(ack + 1, &net_seq_num, 4);
-    ack[5] = checksum(ack, ACK_SIZE - 1);
-}
-
-// Create UDP socket
-int create_socket() {
-    int sockfd = socket(AF_INET, SOCK_DGRAM, 0);
-    if (sockfd < 0) {
-        perror("Socket creation failed");
-        exit(1);
-    }
-    return sockfd;
-}
+struct Packet {
+    int seq_num;
+    int ack_num;
+    u_char flags;
+    int data_length;
+    char data[MAX_DATA_SIZE];
+    unsigned short checksum;
+};
 
 // Parse command line arguments
 void parse_arguments(int argc, char *argv[], int &recv_port) {
@@ -85,146 +44,226 @@ void parse_arguments(int argc, char *argv[], int &recv_port) {
             exit(1);
         }
     }
+
+    if (recv_port <= 0) {
+        cerr << "Invalid or missing port number. Use -p <recv port>" << endl;
+        exit(1);
+    }
 }
 
-// Set up receiver address
-struct sockaddr_in setup_recv_addr(int recv_port) {
+// Send ACK for a received packet
+void send_ack(int sockfd, struct sockaddr_in &sender_addr, socklen_t sender_len, int ack_num) {
+    sendto(sockfd, &ack_num, sizeof(ack_num), 0, (struct sockaddr *)&sender_addr, sender_len);
+    cout << "ACK sent for packet " << ack_num << endl;
+}
+
+// // Receive file and process packets
+// void receive_file(int sockfd) {
+//     map<int, Packet> recv_window;  // For storing out-of-order packets
+//     int expected_seq_num = 0;      // Expected sequence number
+//     bool transfer_complete = false;
+//     string filename_received;
+//     bool filename_received_flag = false;
+//     ofstream output_file; // Output file stream
+
+//     struct sockaddr_in sender_addr;
+//     socklen_t sender_len = sizeof(sender_addr);
+
+//     while (!transfer_complete) {
+//         Packet packet;
+//         int recv_len = recvfrom(sockfd, &packet, sizeof(packet), 0, (struct sockaddr *)&sender_addr, &sender_len);
+//         if (recv_len < 0) {
+//             perror("Error receiving packet");
+//             continue;
+//         }
+
+//         // Handle filename packet
+//         if (packet.flags == FILENAME && packet.seq_num == expected_seq_num) {
+//             filename_received = string(packet.data, packet.data_length);
+//             filename_received_flag = true;
+
+//             // Open output file with filename_received + ".recv"
+//             string output_file_path = filename_received + ".recv";
+//             output_file.open(output_file_path, ios::binary);
+//             if (!output_file.is_open()) {
+//                 cerr << "Error opening output file: " << output_file_path << endl;
+//                 close(sockfd);
+//                 exit(1);
+//             }
+//             cout << "Receiving file: " << filename_received << ", saving as: " << output_file_path << endl;
+
+//             // Send ACK for filename packet
+//             send_ack(sockfd, sender_addr, sender_len, packet.seq_num);
+//             expected_seq_num++;
+//             continue;
+//         }
+
+//         // Ensure output file is open
+//         if (!filename_received_flag) {
+//             cerr << "Error: Filename packet not received yet." << endl;
+//             continue;
+//         }
+
+//         // Handle end-of-transfer packet
+//         if (packet.flags == END_OF_TRANSFER) {
+//             cout << "End of file transfer received." << endl;
+//             transfer_complete = true;
+//             send_ack(sockfd, sender_addr, sender_len, packet.seq_num);  // ACK end-of-transfer packet
+//             break;
+//         }
+
+//         // Handle data packets
+//         if (packet.seq_num == expected_seq_num) {
+//             // In-order packet received
+//             output_file.write(packet.data, packet.data_length);
+//             cout << "Packet " << packet.seq_num << " received and written to file." << endl;
+
+//             // Send ACK
+//             send_ack(sockfd, sender_addr, sender_len, packet.seq_num);
+//             expected_seq_num++;
+
+//             // Check for any buffered out-of-order packets
+//             while (recv_window.find(expected_seq_num) != recv_window.end()) {
+//                 Packet &next_packet = recv_window[expected_seq_num];
+//                 output_file.write(next_packet.data, next_packet.data_length);
+//                 cout << "Out-of-order packet " << next_packet.seq_num << " received earlier, now written to file." << endl;
+
+//                 send_ack(sockfd, sender_addr, sender_len, next_packet.seq_num);
+//                 recv_window.erase(expected_seq_num);
+//                 expected_seq_num++;
+//             }
+//         } else if (packet.seq_num > expected_seq_num) {
+//             // Out-of-order packet received, store it
+//             cout << "Out-of-order packet " << packet.seq_num << " received, storing in window." << endl;
+//             recv_window[packet.seq_num] = packet;
+//             // Optionally send ACK for the received packet
+//             send_ack(sockfd, sender_addr, sender_len, packet.seq_num);
+//         } else {
+//             // Duplicate packet received
+//             cout << "Duplicate packet " << packet.seq_num << " received, resending ACK." << endl;
+//             send_ack(sockfd, sender_addr, sender_len, packet.seq_num);
+//         }
+//     }
+
+//     if (output_file.is_open()) {
+//         output_file.close();
+//     }
+// }
+
+
+
+
+
+// 接收方处理数据包的函数
+void receive_file(int sockfd) {
+    int expected_seq_num = 0;      // 接收方期望的下一个包的序列号
+    bool transfer_complete = false;
+    string filename_received;
+    bool filename_received_flag = false;
+    ofstream output_file; // 输出文件流
+
+    struct sockaddr_in sender_addr;
+    socklen_t sender_len = sizeof(sender_addr);
+
+    while (!transfer_complete) {
+        Packet packet;
+        int recv_len = recvfrom(sockfd, &packet, sizeof(packet), 0, (struct sockaddr *)&sender_addr, &sender_len);
+        if (recv_len < 0) {
+            perror("Error receiving packet");
+            continue;
+        }
+
+        // 处理文件传输结束包
+        if (packet.flags == END_OF_TRANSFER) {
+            cout << "End of file transfer received." << endl;
+            transfer_complete = true;
+            send_ack(sockfd, sender_addr, sender_len, packet.seq_num);  // ACK结束包
+            break;
+        }
+
+        // 处理文件名包
+        if (packet.flags == FILENAME && packet.seq_num == expected_seq_num) {
+            filename_received = string(packet.data, packet.data_length);
+            filename_received_flag = true;
+
+            // 打开输出文件，命名为原文件名加上 .recv
+            string output_file_path = filename_received + ".recv";
+            output_file.open(output_file_path, ios::binary);
+            if (!output_file.is_open()) {
+                cerr << "Error opening output file: " << output_file_path << endl;
+                close(sockfd);
+                exit(1);
+            }
+            cout << "Receiving file: " << filename_received << ", saving as: " << output_file_path << endl;
+
+            // 发送ACK
+            send_ack(sockfd, sender_addr, sender_len, packet.seq_num);
+            expected_seq_num++;
+            continue;
+        }
+
+        // 确保文件名已接收
+        if (!filename_received_flag) {
+            cerr << "Error: Filename packet not received yet." << endl;
+            continue;
+        }
+
+        // 处理正常的数据包
+        if (packet.seq_num == expected_seq_num) {
+            // 按顺序接收到包，写入文件
+            output_file.write(packet.data, packet.data_length);
+            cout << "Packet " << packet.seq_num << " received and written to file." << endl;
+
+            // 发送累积ACK
+            send_ack(sockfd, sender_addr, sender_len, packet.seq_num);
+            expected_seq_num++;
+
+            // 检查是否有缓存在窗口中的下一个期望包
+            // 这里不需要，因为接收方不维护缓冲区
+        } else {
+            // 接收到乱序包，忽略数据，但发送当前期望的累积ACK
+            cout << "Out-of-order packet " << packet.seq_num << " received, sending ACK for " << (expected_seq_num - 1) << "." << endl;
+            send_ack(sockfd, sender_addr, sender_len, (expected_seq_num - 1));
+        }
+    }
+
+    if (output_file.is_open()) {
+        output_file.close();
+    }
+}
+
+
+int main(int argc, char *argv[]) {
+    int recv_port = 0;
+
+    // Parse command line arguments
+    parse_arguments(argc, argv, recv_port);
+
+    // Create UDP socket
+    int sockfd = socket(AF_INET, SOCK_DGRAM, 0);
+    if (sockfd < 0) {
+        perror("Socket creation failed");
+        return 1;
+    }
+
     struct sockaddr_in recv_addr;
     memset(&recv_addr, 0, sizeof(recv_addr));
     recv_addr.sin_family = AF_INET;
     recv_addr.sin_port = htons(recv_port);
     recv_addr.sin_addr.s_addr = INADDR_ANY;
-    return recv_addr;
-}
 
-// Receive data and write to file
-void receive_data(int sockfd, struct sockaddr_in &sender_addr) {
-    unsigned char buffer[MAX_FRAME_SIZE];
-    unsigned char data[MAX_DATA_SIZE];
-    int expected_seq_num = 0;
-    map<int, pair<unsigned char *, int>> frame_buffer;
-
-    string filepath;
-    ofstream file;
-    bool filename_received = false;
-
-    bool receive_done = false;
-    while (!receive_done) {
-        socklen_t addr_len = sizeof(sender_addr);
-        int frame_size = recvfrom(sockfd, buffer, MAX_FRAME_SIZE, 0, (struct sockaddr *)&sender_addr, &addr_len);
-        if (frame_size < 0) {
-            perror("Failed to receive frame");
-            exit(1);
-        }
-
-        PacketType pkt_type;
-        int seq_num, data_size;
-        if (read_frame(pkt_type, seq_num, data, data_size, buffer)) {
-            cout << "[recv corrupt packet]" << endl;
-            continue;
-        }
-
-        // Send ACK
-        unsigned char ack[ACK_SIZE];
-        create_ack(seq_num, ack, false);
-        sendto(sockfd, ack, ACK_SIZE, 0, (struct sockaddr *)&sender_addr, addr_len);
-        cout << "Sending ACK for frame " << seq_num << endl;
-
-        if (pkt_type == FILENAME && !filename_received) {
-            // Receive filename and directory
-            filepath = string((char *)data, data_size) + ".recv";
-            cout << "Received file path: " << filepath << endl;
-
-            // Create directory if it doesn't exist
-            size_t last_slash = filepath.find_last_of('/');
-            if (last_slash != string::npos) {
-                string dir_path = filepath.substr(0, last_slash);
-                struct stat st = {0};
-                if (stat(dir_path.c_str(), &st) == -1) {
-                    mkdir(dir_path.c_str(), 0700);
-                }
-            }
-
-            // Open file for writing
-            file.open(filepath, ios::out | ios::binary);
-            if (!file.is_open()) {
-                cerr << "Error opening file for writing: " << filepath << endl;
-                exit(1);
-            }
-
-            filename_received = true;
-            expected_seq_num = seq_num + 1;
-        } else if (pkt_type == FILEDATA && filename_received) {
-            if (seq_num == expected_seq_num) {
-                // Write in-order frame to file
-                file.write((char *)data, data_size);
-                cout << "[recv data] seq_num " << seq_num << " ACCEPTED" << endl;
-                expected_seq_num++;
-
-                // Check if any buffered frames can be written
-                while (frame_buffer.count(expected_seq_num) > 0) {
-                    auto &buf_pair = frame_buffer[expected_seq_num];
-                    file.write((char *)buf_pair.first, buf_pair.second);
-                    delete[] buf_pair.first;
-                    frame_buffer.erase(expected_seq_num);
-                    cout << "[recv data] seq_num " << expected_seq_num << " ACCEPTED from buffer" << endl;
-                    expected_seq_num++;
-                }
-            } else if (seq_num > expected_seq_num) {
-                // Buffer out-of-order frame
-                unsigned char *buffered_data = new unsigned char[data_size];
-                memcpy(buffered_data, data, data_size);
-                frame_buffer[seq_num] = make_pair(buffered_data, data_size);
-                cout << "[recv data] seq_num " << seq_num << " BUFFERED" << endl;
-            } else {
-                // Duplicate frame, already received
-                cout << "[recv data] seq_num " << seq_num << " DUPLICATE" << endl;
-            }
-        } else if (pkt_type == END_OF_TRANSFER) {
-            cout << "End-of-Transfer packet received." << endl;
-            receive_done = true;
-
-            // Write any remaining buffered frames
-            while (frame_buffer.count(expected_seq_num) > 0) {
-                auto &buf_pair = frame_buffer[expected_seq_num];
-                file.write((char *)buf_pair.first, buf_pair.second);
-                delete[] buf_pair.first;
-                frame_buffer.erase(expected_seq_num);
-                cout << "[recv data] seq_num " << expected_seq_num << " ACCEPTED from buffer" << endl;
-                expected_seq_num++;
-            }
-        }
-    }
-
-    if (file.is_open()) {
-        file.close();
-    }
-}
-
-int main(int argc, char *argv[]) {
-    int recv_port = 0;
-
-    parse_arguments(argc, argv, recv_port);
-
-    if (recv_port == 0) {
-        cerr << "Usage: recvfile -p <recv port>" << endl;
-        return 1;
-    }
-
-    int sockfd = create_socket();
-
-    struct sockaddr_in recv_addr = setup_recv_addr(recv_port);
-
-    if (bind(sockfd, (struct sockaddr *)&recv_addr, sizeof(recv_addr)) < 0) {
+    // Bind socket to the specified port
+    if (bind(sockfd, (const struct sockaddr *)&recv_addr, sizeof(recv_addr)) < 0) {
         perror("Bind failed");
         close(sockfd);
         return 1;
     }
 
-    struct sockaddr_in sender_addr;
-    receive_data(sockfd, sender_addr);
+    // Start receiving file
+    receive_file(sockfd);
 
+    // Clean up
     close(sockfd);
-    cout << "[completed]" << endl;
+
     return 0;
 }
