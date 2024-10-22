@@ -76,6 +76,7 @@ void receiveFile(int sockfd, struct sockaddr_in &cliaddr)
     bool finished = false;
     Packet window[WINDOW_SIZE];
     unordered_map<int, bool> isWriten;   // track the writen packet (seq num, T/F)
+    unordered_map<int, bool> isAcked;    // track the acked packet (seq num, T/F)
     memset(window, 0, sizeof(window)); // Initialize window packets
     int head = 0;                      // The oldest unacknowledged packet
     // int tail = 0;                      // The leatest packet to write
@@ -124,6 +125,7 @@ void receiveFile(int sockfd, struct sockaddr_in &cliaddr)
                 // set the packet to acked
                 recv_packet.ack_num = 1;
                 window[recv_packet.seq_num % WINDOW_SIZE] = recv_packet;
+                isAcked[recv_packet.seq_num] = true;
                 cout<<"packet valid, seq: " << recv_packet.seq_num << endl;
 
                 // check the window
@@ -135,6 +137,7 @@ void receiveFile(int sockfd, struct sockaddr_in &cliaddr)
                         cout<<window[i].seq_num<<" ";
                     }
                     cout<<endl;
+                    
                     int index = i % WINDOW_SIZE;
                     Packet headPacket = window[index];
                     // check if the isWriten map has seen this packet
@@ -142,9 +145,10 @@ void receiveFile(int sockfd, struct sockaddr_in &cliaddr)
                         isWriten[headPacket.seq_num] = false;
                     }
                     // the head packet hasn't been received yet
-                    if (headPacket.ack_num == 0)
+                    if (isAcked.find(i) == isAcked.end())
                     {
                         cout<<"head hasn't received yet, seq: "<< head << endl;
+                        
                         break;
                     }
                     // head packet ready and hasn't been writen
