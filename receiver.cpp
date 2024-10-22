@@ -71,17 +71,10 @@ void receiveFile(int sockfd, struct sockaddr_in &cliaddr)
         exit(EXIT_FAILURE);
     }
 
-    char buffer[MAXLINE];
     socklen_t len = sizeof(cliaddr);
     bool finished = false;
-    Packet window[WINDOW_SIZE];
-    unordered_map<int, bool> isWriten;   // track the writen packet (seq num, T/F)
-    unordered_map<int, bool> isAcked;    // track the acked packet (seq num, T/F)
-    memset(window, 0, sizeof(window)); // Initialize window packets
-    int head = 0;                      // The oldest unacknowledged packet
-    // int tail = 0;                      // The leatest packet to write
-    int seqToWrite = 0;                // The seq to write
-    auto now = chrono::steady_clock::now();
+    unordered_map<uint16_t, Packet> received_packets; // Map to store received packets
+    uint16_t expected_seq_num = 0;                    // The next expected sequence number
 
     // Set socket to non-blocking mode
     fcntl(sockfd, F_SETFL, O_NONBLOCK);
@@ -89,7 +82,6 @@ void receiveFile(int sockfd, struct sockaddr_in &cliaddr)
     while (!finished)
     {
         Packet recv_packet;
-        // cout<<"Waiting for packet"<<endl;
         ssize_t n = recvfrom(sockfd, &recv_packet, sizeof(Packet), 0, (struct sockaddr *)&cliaddr, &len);
         if (n == -1)
         {
@@ -101,172 +93,115 @@ void receiveFile(int sockfd, struct sockaddr_in &cliaddr)
             else
             {
                 perror("recvfrom failed");
-                // Handle actual errors appropriately
-                exit(EXIT_FAILURE); // Or handle the error as needed
+                exit(EXIT_FAILURE);
             }
         }
-        
-        // convert to os format
+
+        // Convert from network to host byte order
         decode(recv_packet);
 
-        // verify the checksum
+        // Verify the checksum
         if (recv_packet.checksum == calculateChecksum(recv_packet))
         {
-            // packet out of the window
-            if (recv_packet.seq_num > head + WINDOW_SIZE || recv_packet.seq_num < head)
+            if (recv_packet.seq_num >= expected_seq_num && recv_packet.seq_num < expected_seq_num + WINDOW_SIZE)
             {
-                cout << "window: " << head << " " << head + WINDOW_SIZE <<endl;
-                cout << "packet out of the window, seq: " << recv_packet.seq_num <<endl;
-                // Set the ack packet
+                // Packet is within the window
+                received_packets[recv_packet.seq_num] = recv_packet;
+                cout << "Received packet seq_num: " << recv_packet.seq_num << endl;
+
+                // Send ACK for the received packet
                 Packet ack_packet;
                 memset(&ack_packet, 0, sizeof(Packet));
-                ack_packet.ack_num = 1;
                 ack_packet.seq_num = recv_packet.seq_num;
+                ack_packet.ack_num = 1; // ACK
                 ack_packet.checksum = calculateChecksum(ack_packet);
                 ack_packet.data_length = 0;
-                
-                // convert to net format
+
+                // Convert to network byte order
                 encode(ack_packet);
 
                 sendto(sockfd, &ack_packet, sizeof(Packet), 0, (struct sockaddr *)&cliaddr, len);
-                cout<<"send duplicate ack back to the sender, seq: " << recv_packet.seq_num<<endl;
-            }
-            
-            // packet in the window
-            else
-            {
-                // set the packet to acked
-                recv_packet.ack_num = 1;
-                window[recv_packet.seq_num % WINDOW_SIZE] = recv_packet;
-                isAcked[recv_packet.seq_num] = true;
-                cout<<"packet valid, seq: " << recv_packet.seq_num << endl;
+                cout << "Sent ACK for seq_num: " << recv_packet.seq_num << endl;
 
-                // check the window
-                
-                cout<<"check the window"<<endl;
-                for (int i = head; i < head + WINDOW_SIZE; i++)
+                // Write packets to file in order
+                while (received_packets.find(expected_seq_num) != received_packets.end())
                 {
-                    cout<<"head: " << head<<endl;
-                    for(int i = 0; i < WINDOW_SIZE; i++){
-                        cout<<window[i].seq_num<<" ";
-                    }
-                    cout<<endl;
-                    
-                    int index = i % WINDOW_SIZE;
-                    Packet headPacket = window[index];
-                    // check if the isWriten map has seen this packet
-                    if(isWriten.find(headPacket.seq_num) == isWriten.end()){
-                        isWriten[headPacket.seq_num] = false;
-                    }
+                    Packet &pkt = received_packets[expected_seq_num];
 
-                    
-                    // the head packet hasn't been received yet
-                    if (isAcked.find(i) == isAcked.end())
+                    // Check for end of file
+                    if (pkt.data_length == 0)
                     {
-                        cout<<"head hasn't received yet, seq: "<< head << endl;
+                        cout << "Received EOF packet seq_num: " << pkt.seq_num << endl;
+                        outputFile.close();
+                        finished = true;
+                        break;
                     }
-                    // head packet ready and hasn't been writen
-                    else if (headPacket.ack_num == 1 && isWriten[headPacket.seq_num] == false)
+                    else
                     {
-                        // end of file
-                        if (headPacket.data_length == 0)
-                        {
-                            cout << "File is received" << endl;
-                            outputFile.close();
-                            finished = true;
-                            // Set the ack packet
-                            Packet ack_packet;
-                            memset(&ack_packet, 0, sizeof(Packet));
-                            ack_packet.ack_num = 1;
-                            ack_packet.seq_num = headPacket.seq_num;
-                            ack_packet.checksum = calculateChecksum(ack_packet);
-                            ack_packet.data_length = 0;
-                            
-                            // convert to net format
-                            encode(ack_packet);
-
-                            sendto(sockfd, &ack_packet, sizeof(Packet), 0, (struct sockaddr *)&cliaddr, len);
-                            cout<<"eof ack sent"<<endl;
-                            break;
-                        }
-                        // write the packet
-                        else
-                        {
-                            isWriten[headPacket.seq_num] = true;
-                            outputFile.write(headPacket.data, headPacket.data_length);
-                            cout<<"write successful, seq: "<< headPacket.seq_num <<endl;
-                        }
-
-                        // Set the ack packet
-                        Packet ack_packet;
-                        memset(&ack_packet, 0, sizeof(Packet));
-                        ack_packet.ack_num = 1;
-                        ack_packet.seq_num = headPacket.seq_num;
-                        ack_packet.checksum = calculateChecksum(ack_packet);
-                        ack_packet.data_length = 0;
-                        
-                        // convert to net format
-                        encode(ack_packet);
-
-                        sendto(sockfd, &ack_packet, sizeof(Packet), 0, (struct sockaddr *)&cliaddr, len);
-                        cout<<"send ack back to the sender, seq: " << headPacket.seq_num<<endl;
-                        // update the window parameters
-                        head++;
-                        continue;
+                        outputFile.write(pkt.data, pkt.data_length);
+                        cout << "Wrote packet seq_num: " << pkt.seq_num << " to file" << endl;
                     }
-                    
-                    // The head package has been writen, duplicate packet, ignore
-                    else if (headPacket.ack_num == 1 && isWriten[headPacket.seq_num] == true){
-                        // Set the ack packet
-                        Packet ack_packet;
-                        memset(&ack_packet, 0, sizeof(Packet));
-                        ack_packet.ack_num = 1;
-                        ack_packet.seq_num = headPacket.seq_num;
-                        ack_packet.checksum = calculateChecksum(ack_packet);
-                        ack_packet.data_length = 0;
-                        
-                        // convert to net format
-                        encode(ack_packet);
-
-                        sendto(sockfd, &ack_packet, sizeof(Packet), 0, (struct sockaddr *)&cliaddr, len);
-                        cout<<"send duplicate ack back to the sender, seq: " << headPacket.seq_num<<endl;
-                        
-                    }
-                    
-                    // head packet is corrupted
-                    else if (headPacket.ack_num == 2){
-                        // Set the ack packet
-                        Packet ack_packet;
-                        memset(&ack_packet, 0, sizeof(Packet));
-                        ack_packet.ack_num = 2;
-                        ack_packet.seq_num = headPacket.seq_num;
-                        ack_packet.checksum = calculateChecksum(ack_packet);
-                        ack_packet.data_length = 0;
-                        
-                        // convert to net format
-                        encode(ack_packet);
-
-                        sendto(sockfd, &ack_packet, sizeof(Packet), 0, (struct sockaddr *)&cliaddr, len);
-                    }
+                    received_packets.erase(expected_seq_num);
+                    expected_seq_num++;
                 }
             }
+            else if (recv_packet.seq_num < expected_seq_num)
+            {
+                // Duplicate packet received
+                cout << "Received duplicate packet seq_num: " << recv_packet.seq_num << endl;
+
+                // Send ACK for the duplicate packet
+                Packet ack_packet;
+                memset(&ack_packet, 0, sizeof(Packet));
+                ack_packet.seq_num = recv_packet.seq_num;
+                ack_packet.ack_num = 1; // ACK
+                ack_packet.checksum = calculateChecksum(ack_packet);
+                ack_packet.data_length = 0;
+
+                // Convert to network byte order
+                encode(ack_packet);
+
+                sendto(sockfd, &ack_packet, sizeof(Packet), 0, (struct sockaddr *)&cliaddr, len);
+                cout << "Sent duplicate ACK for seq_num: " << recv_packet.seq_num << endl;
+            }
+            else
+            {
+                // Packet outside the window; ignore or send ACK to help sender
+                cout << "Received packet outside window seq_num: " << recv_packet.seq_num << endl;
+
+                // Optionally, send ACK
+                Packet ack_packet;
+                memset(&ack_packet, 0, sizeof(Packet));
+                ack_packet.seq_num = recv_packet.seq_num;
+                ack_packet.ack_num = 1; // ACK
+                ack_packet.checksum = calculateChecksum(ack_packet);
+                ack_packet.data_length = 0;
+
+                // Convert to network byte order
+                encode(ack_packet);
+
+                sendto(sockfd, &ack_packet, sizeof(Packet), 0, (struct sockaddr *)&cliaddr, len);
+                cout << "Sent ACK for seq_num outside window: " << recv_packet.seq_num << endl;
+            }
         }
-        // packet corrupted, retransmit
         else
         {
-            cout<<"packet corrupt"<<recv_packet.checksum<<" "<<calculateChecksum(recv_packet)<<endl;
-            // Set the ack packet
-            Packet ack_packet;
-            memset(&ack_packet, 0, sizeof(Packet));
-            ack_packet.ack_num = 2;
-            ack_packet.seq_num = recv_packet.seq_num;
-            ack_packet.checksum = calculateChecksum(ack_packet);
-            ack_packet.data_length = 0;
-            
-            // convert to net format
-            encode(ack_packet);
+            // Packet corrupted; send NAK
+            cout << "Received corrupted packet seq_num: " << recv_packet.seq_num << endl;
 
-            sendto(sockfd, &ack_packet, sizeof(Packet), 0, (struct sockaddr *)&cliaddr, len);
+            // Send NAK for the corrupted packet
+            Packet nak_packet;
+            memset(&nak_packet, 0, sizeof(Packet));
+            nak_packet.seq_num = recv_packet.seq_num;
+            nak_packet.ack_num = 2; // NAK
+            nak_packet.checksum = calculateChecksum(nak_packet);
+            nak_packet.data_length = 0;
+
+            // Convert to network byte order
+            encode(nak_packet);
+
+            sendto(sockfd, &nak_packet, sizeof(Packet), 0, (struct sockaddr *)&cliaddr, len);
+            cout << "Sent NAK for seq_num: " << recv_packet.seq_num << endl;
         }
     }
 }
