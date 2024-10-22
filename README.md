@@ -23,3 +23,7 @@ make clean
 <br>md5sum testfile_10MB.bin testfile_10MB.bin.recv
 
 <br> ./sendfile -r opal.clear.rice.edu:18000 -f ./testfile.bin
+
+login to clear
+<br>ssh netid@opal.clear.rice.edu
+<br>ssh sh215comp429@look.cs.rice.edu
