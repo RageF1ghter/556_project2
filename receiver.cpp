@@ -15,9 +15,8 @@
 
 #define PORT 8080
 #define MAXLINE 1024
-#define WINDOW_SIZE 5
-#define TIMEOUT_MS 2000
-
+#define WINDOW_SIZE    200
+#define TIMEOUT_MS     100
 using namespace std;
 
 struct Packet
