@@ -112,26 +112,24 @@ void receiveFile(int sockfd, struct sockaddr_in &cliaddr)
         // verify the checksum
         if (recv_packet.checksum == calculateChecksum(recv_packet))
         {
-            // for(int i = 0; i<WINDOW_SIZE; i++){
-                
-            //     // Set the ack packet
-            //     Packet ack_packet;
-            //     memset(&ack_packet, 0, sizeof(Packet));
-            //     ack_packet.ack_num = 1;
-            //     ack_packet.seq_num = window[i].seq_num;
-            //     ack_packet.checksum = calculateChecksum(ack_packet);
-            //     ack_packet.data_length = 0;
-                
-            //     // convert to net format
-            //     encode(ack_packet);
-
-            //     sendto(sockfd, &ack_packet, sizeof(Packet), 0, (struct sockaddr *)&cliaddr, len);
-            // }
             // packet out of the window
             if (recv_packet.seq_num > head + WINDOW_SIZE || recv_packet.seq_num < head)
             {
                 cout << "window: " << head << " " << head + WINDOW_SIZE <<endl;
                 cout << "packet out of the window, seq: " << recv_packet.seq_num <<endl;
+                // Set the ack packet
+                Packet ack_packet;
+                memset(&ack_packet, 0, sizeof(Packet));
+                ack_packet.ack_num = 1;
+                ack_packet.seq_num = recv_packet.seq_num;
+                ack_packet.checksum = calculateChecksum(ack_packet);
+                ack_packet.data_length = 0;
+                
+                // convert to net format
+                encode(ack_packet);
+
+                sendto(sockfd, &ack_packet, sizeof(Packet), 0, (struct sockaddr *)&cliaddr, len);
+                cout<<"send duplicate ack back to the sender, seq: " << recv_packet.seq_num<<endl;
             }
             
             // packet in the window
