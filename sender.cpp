@@ -18,7 +18,7 @@ using namespace std;
 #define PORT           8080
 #define MAXLINE        1024
 #define WINDOW_SIZE    5
-#define TIMEOUT_MS     1000
+#define TIMEOUT_MS     2000
 
 struct Packet {
     uint16_t seq_num;    // Sequence number

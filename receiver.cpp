@@ -16,7 +16,7 @@
 #define PORT 8080
 #define MAXLINE 1024
 #define WINDOW_SIZE 5
-#define TIMEOUT_MS 1000
+#define TIMEOUT_MS 2000
 
 using namespace std;
 
@@ -144,13 +144,13 @@ void receiveFile(int sockfd, struct sockaddr_in &cliaddr)
                     if(isWriten.find(headPacket.seq_num) == isWriten.end()){
                         isWriten[headPacket.seq_num] = false;
                     }
+
                     // the head packet hasn't been received yet
                     if (isAcked.find(i) == isAcked.end())
                     {
                         cout<<"head hasn't received yet, seq: "<< head << endl;
-                        
-                        break;
                     }
+
                     // head packet ready and hasn't been writen
                     else if (headPacket.ack_num == 1 && isWriten[headPacket.seq_num] == false)
                     {
