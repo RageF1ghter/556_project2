@@ -114,6 +114,7 @@ void receiveFile(int sockfd, struct sockaddr_in &cliaddr)
             // packet out of the window
             if (recv_packet.seq_num > head + WINDOW_SIZE || recv_packet.seq_num < head)
             {
+                cout << "window: " << head << " " << head + WINDOW_SIZE <<endl;
                 cout << "packet out of the window, seq: " << recv_packet.seq_num <<endl;
             }
             
