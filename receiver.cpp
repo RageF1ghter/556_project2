@@ -130,6 +130,7 @@ void receiveFile(int sockfd, struct sockaddr_in &cliaddr)
                 cout<<"check the window"<<endl;
                 for (int i = head; i < head + WINDOW_SIZE; i++)
                 {
+                    cout<<"head: " << head<<endl;
                     for(int i = 0; i < WINDOW_SIZE; i++){
                         cout<<window[i].seq_num<<" ";
                     }
