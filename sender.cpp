@@ -151,9 +151,9 @@ void sendFile(const char* filePath, int sockfd, struct sockaddr_in& servaddr) {
                 uint16_t calc_checksum = calculateChecksum(ack_packet);
                 if (ack_packet.checksum == calc_checksum) {
                     if (ack_packet.ack_num == 1) {
-                        for(auto pair: isAcked){
-                            cout<<pair.first<<" "<<pair.second<<endl;
-                        }
+                        // for(auto pair: isAcked){
+                        //     cout<<pair.first<<" "<<pair.second<<endl;
+                        // }
                         // Duplicate Ack packet, ignore
                         if(isAcked[ack_packet.seq_num] == true){
                             cout<<"Duplicate Ack, seq: "<<ack_packet.seq_num<<endl;
@@ -265,13 +265,14 @@ void sendFile(const char* filePath, int sockfd, struct sockaddr_in& servaddr) {
             perror("select");
             // Handle error
         } else if (rv == 0) {
-            // Timeout occurred, check if we should resend EOF packet
-            auto time_since_sent = chrono::duration_cast<chrono::milliseconds>(chrono::steady_clock::now() - eof_send_time);
-            if (time_since_sent.count() >= TIMEOUT_MS) {
-                eof_send_time = chrono::steady_clock::now();
-                cout << "Timeout waiting for EOF ACK, retransmitting EOF packet" << endl;
-            }
-            continue;
+            // // Timeout occurred, check if we should resend EOF packet
+            // auto time_since_sent = chrono::duration_cast<chrono::milliseconds>(chrono::steady_clock::now() - eof_send_time);
+            // if (time_since_sent.count() >= TIMEOUT_MS) {
+            //     eof_send_time = chrono::steady_clock::now();
+            //     cout << "Timeout waiting for EOF ACK, retransmitting EOF packet" << endl;
+            // }
+            // continue;
+            cout<<"eof timeout, check the sent"<<endl;
         } else {
             if (FD_ISSET(sockfd, &readfds)) {
                 Packet ack_packet;
@@ -280,7 +281,7 @@ void sendFile(const char* filePath, int sockfd, struct sockaddr_in& servaddr) {
                     decode(ack_packet);
 
                     uint16_t calc_checksum = calculateChecksum(ack_packet);
-                    if (ack_packet.checksum == calc_checksum && ack_packet.seq_num == tail && ack_packet.ack_num == 1) {
+                    if (ack_packet.checksum == calc_checksum) {
                         cout << "Received ACK for EOF packet" << endl;
                         eof_acknowledged = true;
                         break;
