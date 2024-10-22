@@ -251,10 +251,17 @@ void receiveFile(int sockfd, struct sockaddr_in &cliaddr)
     }
 }
 
-int main()
+int main(int argc, char* argv[])
 {
+    if (argc != 2) {
+        cout<<"enter the port first"<<endl;
+        exit(EXIT_FAILURE);
+    }
     int sockfd;
     struct sockaddr_in servaddr, cliaddr;
+    int port = atoi(argv[1]);
+    
+    /// TODO: check the port range
 
     // Creating socket file descriptor
     if ((sockfd = socket(AF_INET, SOCK_DGRAM, 0)) < 0)
@@ -269,7 +276,7 @@ int main()
     // Filling server information
     servaddr.sin_family = AF_INET;
     servaddr.sin_addr.s_addr = INADDR_ANY;
-    servaddr.sin_port = htons(PORT);
+    servaddr.sin_port = htons(port);
 
     // Bind the socket with the server address
     if (bind(sockfd, (const struct sockaddr *)&servaddr, sizeof(servaddr)) < 0)

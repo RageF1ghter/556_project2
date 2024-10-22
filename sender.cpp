@@ -300,7 +300,18 @@ void sendFile(const char* filePath, int sockfd, struct sockaddr_in& servaddr) {
 }
 
 // Driver code
-int main() {
+int main(int argc, char* argv[]) {
+    if (argc != 4) {
+        fprintf(stderr, "Usage: %s <recv host> <recv port> <subdir>/<filename>\n", argv[0]);
+        exit(EXIT_FAILURE);
+    }
+
+    const char* host = argv[1];
+    int port = atoi(argv[2]);
+    const char* file_path = argv[3];
+
+    cout<<host<<" "<<port<<" "<<file_path<<endl;
+
     int sockfd;
     struct sockaddr_in servaddr;
 
@@ -314,17 +325,18 @@ int main() {
 
     // Filling server information
     servaddr.sin_family = AF_INET;
-    servaddr.sin_port = htons(PORT);
+    servaddr.sin_port = htons(port);
 
     // Set server IP address (e.g., localhost)
-    if (inet_pton(AF_INET, "127.0.0.1", &servaddr.sin_addr) <= 0) {
+    // "127.0.0.1"
+    if (inet_pton(AF_INET, host, &servaddr.sin_addr) <= 0) {
         perror("Invalid address/ Address not supported");
         exit(EXIT_FAILURE);
     }
 
     // Send file
-    const char* filePath = "file.txt";
-    sendFile(filePath, sockfd, servaddr);
+    // const char* filePath = "file.txt";
+    sendFile(file_path, sockfd, servaddr);
 
     close(sockfd);
     return 0;
