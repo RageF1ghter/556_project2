@@ -26,4 +26,4 @@ make clean
 
 login to clear
 <br>ssh netid@opal.clear.rice.edu
-<br>ssh sh215comp429@look.cs.rice.edu
+<br>ssh netidcomp429@look.cs.rice.edu
