@@ -146,14 +146,11 @@ void sendFile(const char* filePath, int sockfd, struct sockaddr_in& servaddr) {
             if (n > 0) {
                 // Convert packet to os order
                 decode(ack_packet);
-                cout<<ack_packet.seq_num<<endl;
+                // cout<<ack_packet.seq_num<<endl;
 
                 uint16_t calc_checksum = calculateChecksum(ack_packet);
                 if (ack_packet.checksum == calc_checksum) {
                     if (ack_packet.ack_num == 1) {
-                        // for(auto pair: isAcked){
-                        //     cout<<pair.first<<" "<<pair.second<<endl;
-                        // }
                         // Duplicate Ack packet, ignore
                         if(isAcked[ack_packet.seq_num] == true){
                             cout<<"Duplicate Ack, seq: "<<ack_packet.seq_num<<endl;
@@ -161,6 +158,7 @@ void sendFile(const char* filePath, int sockfd, struct sockaddr_in& servaddr) {
                         
                         // Ack packet in the window, update
                         else{
+                            isAcked[ack_packet.seq_num] = true;
                             cout << "Received ACK for packet " << ack_packet.seq_num << endl;
                             // update the window
                             window[ack_packet.seq_num % WINDOW_SIZE].ack_num = 1;
