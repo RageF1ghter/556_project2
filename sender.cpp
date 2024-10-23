@@ -17,8 +17,9 @@ using namespace std;
 
 #define PORT           8080
 #define MAXLINE        1024
-#define WINDOW_SIZE    10
-#define TIMEOUT_MS     5000
+#define WINDOW_SIZE    200
+#define TIMEOUT_MS     100
+#define PRINT          false
 
 struct Packet {
     uint16_t seq_num;    // Sequence number
@@ -167,11 +168,14 @@ void sendFile(const char* filePath, int sockfd, struct sockaddr_in& servaddr) {
                             while (window[head % WINDOW_SIZE].ack_num == 1 && head < tail) {
                                 head++;
                             }
-                            cout<< "Window updated, window: ";
-                            for(int i = 0; i < WINDOW_SIZE; i++){
-                                cout<<ntohs(window[i].seq_num)<<" ";
+                            if(PRINT){
+                                cout<< "Window updated, window: ";
+                                for(int i = 0; i < WINDOW_SIZE; i++){
+                                    cout<<ntohs(window[i].seq_num)<<" ";
+                                }
+                                cout<<endl;
                             }
-                            cout<<endl;
+                            
                             
                         }
                         
