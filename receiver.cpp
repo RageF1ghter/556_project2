@@ -68,7 +68,7 @@ void decode(Packet& recvPacket){
 void receiveFile(int sockfd, struct sockaddr_in &cliaddr)
 {
     // Open the file to save received data
-    ofstream outputFile("received_file.txt", ios::binary);
+    ofstream outputFile("received_file.bin", ios::binary);
     if (!outputFile.is_open())
     {
         cerr << "Error opening file for writing." << endl;
