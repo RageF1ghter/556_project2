@@ -15,8 +15,8 @@
 
 #define PORT 8080
 #define MAXLINE 1024
-#define WINDOW_SIZE 5
-#define TIMEOUT_MS 2000
+#define WINDOW_SIZE 10
+#define TIMEOUT_MS 5000
 
 using namespace std;
 
