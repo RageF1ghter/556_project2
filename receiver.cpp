@@ -35,7 +35,12 @@ uint16_t calculateChecksum(const Packet& packet) {
     checksum += packet.seq_num;
     checksum += packet.ack_num;
     checksum += packet.data_length;
-    for (size_t i = 0; i < packet.data_length; i++) {
+    uint16_t data_len = packet.data_length;
+    if (data_len > MAXLINE) {
+        std::cerr << "Invalid data_length: " << data_len << std::endl;
+        data_len = MAXLINE; // Prevent buffer overflow
+    }
+    for (size_t i = 0; i < data_len; i++) {
         checksum += static_cast<uint8_t>(packet.data[i]);
     }
     // Add carries
