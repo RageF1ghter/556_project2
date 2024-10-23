@@ -51,7 +51,12 @@ uint16_t calculateChecksum(const Packet& packet) {
     checksum += packet.seq_num;
     checksum += packet.ack_num;
     checksum += packet.data_length;
-    for (size_t i = 0; i < packet.data_length; i++) {
+    uint16_t data_len = packet.data_length; 
+    if (data_len > MAXLINE) { 
+        cerr << "Invalid data_length: " << data_len << endl; 
+        data_len = MAXLINE; // Prevent buffer overflow 
+    } 
+    for (size_t i = 0; i < data_len; i++) { 
         checksum += static_cast<uint8_t>(packet.data[i]);
     }
     // Add carries
@@ -411,6 +416,110 @@ void sendFile(const char* filePath, int sockfd, struct sockaddr_in& servaddr) {
     file.close();
 }
 
+
+
+// // Driver code
+// int main(int argc, char* argv[]) {
+//     // if (argc != 4) {
+//     //     fprintf(stderr, "Usage: %s <recv host> <recv port> <subdir>/<filename>\n", argv[0]);
+//     //     exit(EXIT_FAILURE);
+//     // }
+//     string host, file_path, subdir, filename;
+//     int port = 0;
+
+//     // Parse command line arguments
+//     int opt;
+//     while ((opt = getopt(argc, argv, "r:f:")) != -1) {
+//         switch (opt) {
+//         case 'r': {
+//             char *host_port = strtok(optarg, ":");
+//             char *port_str = strtok(NULL, ":");
+//             if (!host_port || !port_str) {
+//                 cerr << "Invalid receiver address format. Use -r <host>:<port>" << endl;
+//                 exit(1);
+//             }
+//             host = host_port;
+//             port = atoi(port_str);
+
+//             // Validate port number
+//             if (port <= 0 || port > 65535) {
+//                 cerr << "Invalid port number." << endl;
+//                 exit(1);
+//             }
+
+//             break;
+//         }
+//         case 'f': {
+//             file_path = string(optarg); // Convert to std::string
+//             size_t last_slash = file_path.find_last_of("/\\"); // Find last slash
+//             if (last_slash == string::npos) {
+//                 subdir = "."; // No directory specified, use current directory
+//                 filename = file_path;
+//             } else {
+//                 subdir = file_path.substr(0, last_slash); // Extract directory
+//                 filename = file_path.substr(last_slash + 1); // Extract filename
+//             }
+//             break;
+//         }
+//         default:
+//             cerr << "Usage: sendfile -r <recv_host>:<recv_port> -f <subdir>/<filename>" << endl;
+//             exit(1);
+//         }
+//     }
+
+//     // Validate required arguments
+//     if (host.empty() || port == 0 || filename.empty()) {
+//         cerr << "Missing required arguments. Usage: sendfile -r <recv_host>:<recv_port> -f <subdir>/<filename>" << endl;
+//         exit(1);
+//     }
+
+//     // Debug output to ensure parsing is correct
+//     cout << "Receiver Host: " << host << endl;
+//     cout << "Receiver Port: " << port << endl;
+//     cout << "File Subdirectory: " << subdir << endl;
+//     cout << "File Name: " << filename << endl;
+//     cout << "Full File Path: " << file_path << endl;
+//     // const char* host = argv[1];
+//     // int port = atoi(argv[2]);
+//     // const char* file_path = argv[3];
+
+//     // cout<<host<<" "<<port<<" "<<file_path<<endl;
+
+//     int sockfd;
+//     struct sockaddr_in servaddr;
+
+//     // Creating socket file descriptor
+//     if ((sockfd = socket(AF_INET, SOCK_DGRAM, 0)) < 0) {
+//         perror("socket creation failed");
+//         exit(EXIT_FAILURE);
+//     }
+
+//     memset(&servaddr, 0, sizeof(servaddr));
+
+//     // Filling server information
+//     servaddr.sin_family = AF_INET;
+//     servaddr.sin_port = htons(port);
+
+//     // Set server IP address (e.g., localhost)
+//     // "127.0.0.1"
+//     // Convert the host address to binary form (IPv4)
+//     if (inet_pton(AF_INET, host.c_str(), &servaddr.sin_addr) <= 0) {
+//         perror("Invalid address/ Address not supported");
+//         exit(EXIT_FAILURE);
+//     }
+//     // if (inet_pton(AF_INET, host, &servaddr.sin_addr) <= 0) {
+//     //     perror("Invalid address/ Address not supported");
+//     //     exit(EXIT_FAILURE);
+//     // }
+
+//     // Send file
+//     // const char* filePath = "file.txt";
+//     // sendFile(file_path, sockfd, servaddr);
+//     sendFile(file_path.c_str(), sockfd, servaddr);
+
+//     close(sockfd);
+//     return 0;
+// }
 
 
 // Driver code
