@@ -1,11 +1,13 @@
 # Project 2 Reliable File Transfer Protocol
 ===========================================
+## Design and implement
 
-### Test commands
+
+## Test commands
 Set up the environment
 
-Log in to the look.cs.rice.edu
-1. Look 
+
+1. Log in to the look.cs.rice.edu
 ```
 $ ssh <username>comp429@look.cs.rice.edu
 ```
@@ -13,7 +15,19 @@ $ ssh <username>comp429@look.cs.rice.edu
 ```
 $ ssh <username>@opal.clear.rice.edu
 ```
-
+3. Set net environment
+   i. Reset environment
+    ```
+    $ /usr/bin/netsim
+    ```
+   ii. Test structure :
+   /usr/bin/netsim [--delay <percent>] [--drop <percent>]
+                    [--reorder <percent>] [--mangle <percent>]
+                    [--duplicate <percent>]
+     ```
+     $ /usr/bin/netsim --delay 20 --drop 20
+     ```
+5. 
 
 1. Make
 ```
