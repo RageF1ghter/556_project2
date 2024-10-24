@@ -85,14 +85,12 @@ void decode(Packet& recvPacket){
  * 
  */
 void sendFile(const char* filePath, int sockfd, struct sockaddr_in& servaddr) {  
-    // /*添加功能-------------------------------------------------------------------------------------------------------------------------------------------------*/    
-    // // 打开日志文件
+    // // log file test
     // ofstream logFile("transfer_log.txt", ios::out);
     // if (!logFile.is_open()) {
     //     cerr << "Error opening log file!" << endl;
     //     return;
     // }
-    // /*添加功能-------------------------------------------------------------------------------------------------------------------------------------------------*/
     
     // record the start time of send file
     struct timeval start_time, end_time;
@@ -105,8 +103,8 @@ void sendFile(const char* filePath, int sockfd, struct sockaddr_in& servaddr) {
     if (pos != string::npos) {
         filedirectory = filename.substr(0, pos + 1);
         filename = filename.substr(pos + 1);
-        cout << filedirectory << endl;
-        cout << filename << endl;
+        // cout << filedirectory << endl;
+        // cout << filename << endl;
     }
     /*end of get file directory and filename--------------------------------------------------------------------------------------------------------------------------------------------*/
 
@@ -127,7 +125,8 @@ void sendFile(const char* filePath, int sockfd, struct sockaddr_in& servaddr) {
     // logFile << "Total number of packets to send: " << total_packets << endl;  // Log this information
     /*end of Calculate total number of packets to send-------------------------------------------------------------------------------------------------------------------------------------------------*/
 
-
+    // Define the starting sequence number for data packets
+    const int DATA_SEQ_START = 2;
     Packet window[WINDOW_SIZE];
     memset(window, 0, sizeof(window)); // Initialize window packets
     char buffer[MAXLINE];
@@ -202,6 +201,21 @@ void sendFile(const char* filePath, int sockfd, struct sockaddr_in& servaddr) {
 
         /** send packets within the window size */
         while (!doneReading && tail < head + WINDOW_SIZE) {
+            /* calcutate the offset for data packet-----------------------------------------------------------------------------------------------------------*/
+            size_t data_packet_index = tail - DATA_SEQ_START;
+            size_t start_offset = data_packet_index * MAXLINE;
+            if (start_offset >= static_cast<size_t>(fileSize)) {
+                doneReading = true;
+                break;  // No more data to read
+            }
+            // Set the file position to the start offset
+            file.seekg(start_offset);
+            /* end of calcutate the offset for data packet-----------------------------------------------------------------------------------------------------------*/
+
+            // Read a chunk of the file into the buffer
+            // Set the file position to the start offset
+            file.seekg(start_offset);  
+
             // Read a chunk of the file into the buffer
             file.read(buffer, MAXLINE);
             // gcount get the actual read size
@@ -229,7 +243,8 @@ void sendFile(const char* filePath, int sockfd, struct sockaddr_in& servaddr) {
                     // logFile << "Error sending packet (seq num): " << packet.seq_num << endl;
                 } else {
                     isAcked[ntohs(packet.seq_num)] = false;
-                    cout << "Sent packet sequence number(tail): " << tail <<  endl;
+                    // cout << "Sent packet sequence number(tail): " << tail <<  endl;
+                    cout << "[send data] " << start_offset << " (" << bytesRead << " bytes)" << " sequence number(tail): " << tail << endl;
                 }
                 tail++;
             } else {
@@ -246,7 +261,7 @@ void sendFile(const char* filePath, int sockfd, struct sockaddr_in& servaddr) {
 
         struct timeval tv;
         tv.tv_sec = 0;
-        tv.tv_usec = 100000; // 100 ms timeout时间，重传时间
+        tv.tv_usec = 100000; // 100 ms timeout, retrans
 
         int retval = select(sockfd + 1, &readfds, NULL, NULL, &tv);
         if (retval == -1) {
@@ -271,7 +286,7 @@ void sendFile(const char* filePath, int sockfd, struct sockaddr_in& servaddr) {
                         if (ack_packet.ack_num == 1) {
                             // Duplicate Ack packet, ignore
                             if(isAcked[ack_packet.seq_num] == true){
-                                cout<<"Duplicate Ack, seq: "<<ack_packet.seq_num<<endl;
+                                cout<<"Duplicate Ack, seq: " << ack_packet.seq_num << endl;
                                 // logFile << "Duplicate ACK (seq num): " << ack_packet.seq_num << endl;
                             }
                             // Ack packet in the window, update
@@ -340,7 +355,10 @@ void sendFile(const char* filePath, int sockfd, struct sockaddr_in& servaddr) {
                         perror("sendto failed");
                         // logFile << "Timeout, retransmitting packet (seq num): " << packet.seq_num << endl;
                     } else {
-                        cout << "Timeout, retransmitted packet tail: " << ntohs(packet.seq_num) << endl;
+                        size_t start_offset = i * MAXLINE;
+                        cout << "[Timeout, retransmit data] " << start_offset << " (" << ntohs(packet.data_length) << " bytes)" << endl;
+                    
+                        // cout << "Timeout, retransmitted packet tail: " << ntohs(packet.seq_num) << endl;
                     }
                 }
             }
@@ -406,134 +424,75 @@ void sendFile(const char* filePath, int sockfd, struct sockaddr_in& servaddr) {
             }
         }
     }
-    /* End of Send an end-of-file packet-------------------------------------------------------------------------------------------------------------------------------------------------*/\
+    /* End of Send an end-of-file packet-------------------------------------------------------------------------------------------------------------------------------------------------*/
 
     // record end time
     gettimeofday(&end_time, NULL);
     long transfer_time_ms = get_time_diff_ms(start_time, end_time);
-    cout << "File transfer completed successfully." << endl;
+    cout << "[complete]" << endl;
     cout << "Total transfer time: " << transfer_time_ms << " ms" << endl;
     file.close();
 }
 
 
 
-// // Driver code
-// int main(int argc, char* argv[]) {
-//     // if (argc != 4) {
-//     //     fprintf(stderr, "Usage: %s <recv host> <recv port> <subdir>/<filename>\n", argv[0]);
-//     //     exit(EXIT_FAILURE);
-//     // }
-//     string host, file_path, subdir, filename;
-//     int port = 0;
-
-//     // Parse command line arguments
-//     int opt;
-//     while ((opt = getopt(argc, argv, "r:f:")) != -1) {
-//         switch (opt) {
-//         case 'r': {
-//             char *host_port = strtok(optarg, ":");
-//             char *port_str = strtok(NULL, ":");
-//             if (!host_port || !port_str) {
-//                 cerr << "Invalid receiver address format. Use -r <host>:<port>" << endl;
-//                 exit(1);
-//             }
-//             host = host_port;
-//             port = atoi(port_str);
-
-//             // Validate port number
-//             if (port <= 0 || port > 65535) {
-//                 cerr << "Invalid port number." << endl;
-//                 exit(1);
-//             }
-
-//             break;
-//         }
-//         case 'f': {
-//             file_path = string(optarg); // Convert to std::string
-//             size_t last_slash = file_path.find_last_of("/\\"); // Find last slash
-//             if (last_slash == string::npos) {
-//                 subdir = "."; // No directory specified, use current directory
-//                 filename = file_path;
-//             } else {
-//                 subdir = file_path.substr(0, last_slash); // Extract directory
-//                 filename = file_path.substr(last_slash + 1); // Extract filename
-//             }
-//             break;
-//         }
-//         default:
-//             cerr << "Usage: sendfile -r <recv_host>:<recv_port> -f <subdir>/<filename>" << endl;
-//             exit(1);
-//         }
-//     }
-
-//     // Validate required arguments
-//     if (host.empty() || port == 0 || filename.empty()) {
-//         cerr << "Missing required arguments. Usage: sendfile -r <recv_host>:<recv_port> -f <subdir>/<filename>" << endl;
-//         exit(1);
-//     }
-
-//     // Debug output to ensure parsing is correct
-//     cout << "Receiver Host: " << host << endl;
-//     cout << "Receiver Port: " << port << endl;
-//     cout << "File Subdirectory: " << subdir << endl;
-//     cout << "File Name: " << filename << endl;
-//     cout << "Full File Path: " << file_path << endl;
-//     // const char* host = argv[1];
-//     // int port = atoi(argv[2]);
-//     // const char* file_path = argv[3];
-
-//     // cout<<host<<" "<<port<<" "<<file_path<<endl;
-
-//     int sockfd;
-//     struct sockaddr_in servaddr;
-
-//     // Creating socket file descriptor
-//     if ((sockfd = socket(AF_INET, SOCK_DGRAM, 0)) < 0) {
-//         perror("socket creation failed");
-//         exit(EXIT_FAILURE);
-//     }
-
-//     memset(&servaddr, 0, sizeof(servaddr));
-
-//     // Filling server information
-//     servaddr.sin_family = AF_INET;
-//     servaddr.sin_port = htons(port);
-
-//     // Set server IP address (e.g., localhost)
-//     // "127.0.0.1"
-//     // Convert the host address to binary form (IPv4)
-//     if (inet_pton(AF_INET, host.c_str(), &servaddr.sin_addr) <= 0) {
-//         perror("Invalid address/ Address not supported");
-//         exit(EXIT_FAILURE);
-//     }
-//     // if (inet_pton(AF_INET, host, &servaddr.sin_addr) <= 0) {
-//     //     perror("Invalid address/ Address not supported");
-//     //     exit(EXIT_FAILURE);
-//     // }
-
-//     // Send file
-//     // const char* filePath = "file.txt";
-//     // sendFile(file_path, sockfd, servaddr);
-//     sendFile(file_path.c_str(), sockfd, servaddr);
-
-//     close(sockfd);
-//     return 0;
-// }
-
-
 // Driver code
 int main(int argc, char* argv[]) {
-    if (argc != 4) {
-        fprintf(stderr, "Usage: %s <recv host> <recv port> <subdir>/<filename>\n", argv[0]);
-        exit(EXIT_FAILURE);
+    string host, file_path, subdir, filename;
+    int port = 0;
+
+    // Parse command line arguments
+    int opt;
+    while ((opt = getopt(argc, argv, "r:f:")) != -1) {
+        switch (opt) {
+        case 'r': {
+            char *host_port = strtok(optarg, ":");
+            char *port_str = strtok(NULL, ":");
+            if (!host_port || !port_str) {
+                cerr << "Invalid receiver address format. Use -r <host>:<port>" << endl;
+                exit(1);
+            }
+            host = host_port;
+            port = atoi(port_str);
+
+            // Validate port number
+            if (port <= 18000 || port > 18200) {
+                cerr << "Invalid port number." << endl;
+                exit(1);
+            }
+
+            break;
+        }
+        case 'f': {
+            file_path = string(optarg); // Convert to std::string
+            size_t last_slash = file_path.find_last_of("/\\"); // Find last slash
+            if (last_slash == string::npos) {
+                subdir = "."; // No directory specified, use current directory
+                filename = file_path;
+            } else {
+                subdir = file_path.substr(0, last_slash); // Extract directory
+                filename = file_path.substr(last_slash + 1); // Extract filename
+            }
+            break;
+        }
+        default:
+            cerr << "Usage: sendfile -r <recv_host>:<recv_port> -f <subdir>/<filename>" << endl;
+            exit(1);
+        }
     }
 
-    const char* host = argv[1];
-    int port = atoi(argv[2]);
-    const char* file_path = argv[3];
+    // Validate required arguments
+    if (host.empty() || port == 0 || filename.empty()) {
+        cerr << "Missing required arguments. Usage: sendfile -r <recv_host>:<recv_port> -f <subdir>/<filename>" << endl;
+        exit(1);
+    }
 
-    cout<<host<<" "<<port<<" "<<file_path<<endl;
+    // Debug output to ensure parsing is correct
+    cout << "Receiver Host: " << host << endl;
+    cout << "Receiver Port: " << port << endl;
+    cout << "File Subdirectory: " << subdir << endl;
+    cout << "File Name: " << filename << endl;
+    cout << "Full File Path: " << file_path << endl;
 
     int sockfd;
     struct sockaddr_in servaddr;
@@ -545,21 +504,22 @@ int main(int argc, char* argv[]) {
     }
 
     memset(&servaddr, 0, sizeof(servaddr));
-
     // Filling server information
     servaddr.sin_family = AF_INET;
     servaddr.sin_port = htons(port);
 
-    // Set server IP address (e.g., localhost)
-    // "127.0.0.1"
-    if (inet_pton(AF_INET, host, &servaddr.sin_addr) <= 0) {
+    // Set server IP address 
+    // Convert the host address to binary form (IPv4)
+    if (inet_pton(AF_INET, host.c_str(), &servaddr.sin_addr) <= 0) {
         perror("Invalid address/ Address not supported");
         exit(EXIT_FAILURE);
     }
+    // if (inet_pton(AF_INET, host, &servaddr.sin_addr) <= 0) {
+    //     perror("Invalid address/ Address not supported");
+    //     exit(EXIT_FAILURE);
+    // }
 
-    // Send file
-    // const char* filePath = "file.txt";
-    sendFile(file_path, sockfd, servaddr);
+    sendFile(file_path.c_str(), sockfd, servaddr);
 
     close(sockfd);
     return 0;
