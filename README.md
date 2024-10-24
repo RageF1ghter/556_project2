@@ -60,15 +60,15 @@ $ make
 ```
 6. Clear run command reciever first
 ```
-$ ./receiver -p 18020
+$ ./recvfile -p 18020
 ```
 8. Look run command sender then:
 ```
-$ ./sender -r 128.42.124.178:18020 -f ./file.bin
+$ ./sendfile -r 128.42.124.178:18020 -f ./file.bin
 ```
 or
 ```
-$ ./sender -r opal.clear.rice.edu:18020 -f ./file.bin
+$ ./sendfile -r opal.clear.rice.edu:18020 -f ./file.bin
 ```
 9. Check if the file was transfered reliable
 ```
