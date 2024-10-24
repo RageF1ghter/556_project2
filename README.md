@@ -1,3 +1,28 @@
+# Project 2 Reliable File Transfer Protocol
+===========================================
+
+### Test commands
+Set up the environment
+
+Log in to the look.cs.rice.edu
+1. Look 
+```
+$ ssh <username>comp429@look.cs.rice.edu
+```
+2. Log in to the clear
+```
+$ ssh <username>@opal.clear.rice.edu
+```
+
+
+1. Make
+```
+$ make
+```
+2. 
+
+
+
 files:
 <br>Makefile
 <br>recvfile.cpp
