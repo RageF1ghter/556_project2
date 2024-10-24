@@ -3,20 +3,31 @@
 ## Design and implement
    ### language C++
    ### Main file: 
-      +sender.cpp
-      +recevier.cpp
-      +Make
-   ### Main getopt(), UDP, Sliding Window
-   Using sliding window to transfer the whole file.
-   When we are trying to send a file:
+      + sender.cpp
+      + recevier.cpp
+      + Make
+   ### Main 
+   - getopt(), UDP, Sliding Window
+   - gettimeofday() to get the transfer time
+   - Using sliding window to transfer the whole file.
+   - When we are trying to send a file:
    1. Firstly, we will send the directory
-   2. Secondly, the filedirectory
-   3. Thirdly, the filename
-   4. Fourthly, loop all the data
-   5. Finally, Send EOF packet to check if recieved the full file.
-   suppose Window_Size = x
-   [0],[1],[2],[3], ... ,[x-1],[x]
-   head                        tail
+   2. Secondly, the filename
+   3. Thirdly, loop all the data
+   4. Finally, Send EOF packet to check if recieved the full file.
+   - suppose Window_Size = x
+   - [0],[1],[2],[3], ... ,[x-1],[x]
+   - head                        tail
+   - filedirectory will occupy window[0]
+   - filename will ocucpy window[1]
+   - start send data:
+      - keep sending data packet: within window size - 2 
+      - check receive data(according to receive logic):
+        - when the acknum = 1 ---> already received this packet
+        - when the acknum = 2 ---> Packet corrupted need retrans
+        - when the acknum = 0 ----> nothing happen
+      - Only when received the most head data packet, slide the window, head++
+      - send new packets inside window tail++
    
    
 
