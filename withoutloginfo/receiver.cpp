@@ -79,8 +79,11 @@ void receiveFile(int sockfd, struct sockaddr_in &cliaddr)
     unordered_map<uint16_t, Packet> received_packets; // Map to store received packets
     uint16_t expected_seq_num = 0;                    // The next expected sequence number
 
+    bool directory_received = false;
     bool filename_received = false;
-    ofstream outputFile;  // Declare outputFile but don't open yet
+    string filedirectory;
+    ofstream outputFile;
+    const int DATA_SEQ_START = 2; // Data packets start from seq_num = 2
 
     // Set socket to non-blocking mode
     fcntl(sockfd, F_SETFL, O_NONBLOCK);
@@ -109,8 +112,16 @@ void receiveFile(int sockfd, struct sockaddr_in &cliaddr)
         // Verify the checksum
         if (recv_packet.checksum == calculateChecksum(recv_packet))
         {
+            string status;
+            size_t start_offset = 0;
+            size_t length = recv_packet.data_length;
             if (recv_packet.seq_num >= expected_seq_num && recv_packet.seq_num < expected_seq_num + WINDOW_SIZE)
             {
+                if(recv_packet.seq_num == expected_seq_num){
+                    status = "ACCEPTED(in-order)";
+                }else if (recv_packet.seq_num > expected_seq_num){
+                    status = "ACCEPTED(out-of-order)";
+                }
                 // Packet is within the window
                 received_packets[recv_packet.seq_num] = recv_packet;
                 cout << "Received packet seq_num: " << recv_packet.seq_num << endl;
@@ -129,23 +140,41 @@ void receiveFile(int sockfd, struct sockaddr_in &cliaddr)
                 sendto(sockfd, &ack_packet, sizeof(Packet), 0, (struct sockaddr *)&cliaddr, len);
                 cout << "Sent ACK for seq_num: " << recv_packet.seq_num << endl;
 
+                
                 // Write packets to file in order
                 while (received_packets.find(expected_seq_num) != received_packets.end())
                 {
                     Packet &pkt = received_packets[expected_seq_num];
-
-                    if (expected_seq_num == 0 && !filename_received)
+                    if (expected_seq_num == 0 && !directory_received)
                     {
-                        // This is the filename packet
+                        // This is the directory packet
+                        filedirectory = string(pkt.data, pkt.data_length);
+                        // cout << "Received directory: " << filedirectory << endl;
+                        directory_received = true;
+                    }
+                    else if (expected_seq_num == 1 && !filename_received)
+                    {
                         string filename(pkt.data, pkt.data_length);
+                        if (filename.empty())
+                        {
+                            cerr << "Filename is empty. Cannot proceed." << endl;
+                            exit(EXIT_FAILURE);
+                        }
                         string output_filename = filename + ".recv";
+                        if (!filedirectory.empty())
+                        {
+                            // Create the directory if it doesn't exist
+                            string command = "mkdir -p " + filedirectory;
+                            system(command.c_str());
+                            output_filename = filedirectory + "/" + filename + ".recv";
+                        }
                         outputFile.open(output_filename, ios::binary);
                         if (!outputFile.is_open())
                         {
                             cerr << "Error opening file for writing: " << output_filename << endl;
                             exit(EXIT_FAILURE);
                         }
-                        cout << "Receiving file: " << filename << endl;
+                        // cout << Receiving fileame << endl;
                         filename_received = true;
                     }
                     else
@@ -160,8 +189,15 @@ void receiveFile(int sockfd, struct sockaddr_in &cliaddr)
                         }
                         else
                         {
-                            outputFile.write(pkt.data, pkt.data_length);
-                            cout << "Wrote packet seq_num: " << pkt.seq_num << " to file" << endl;
+                            if (filename_received)
+                            {
+                                outputFile.write(pkt.data, pkt.data_length);
+                                cout << "Wrote packet seq_num: " << pkt.seq_num << " to file" << endl;
+                            }
+                            else
+                            {
+                                cerr << "Filename not received yet. Cannot write data." << endl;
+                            }
                         }
                     }
                     received_packets.erase(expected_seq_num);
@@ -170,6 +206,7 @@ void receiveFile(int sockfd, struct sockaddr_in &cliaddr)
             }
             else if (recv_packet.seq_num < expected_seq_num)
             {
+                status = "IGNORED";
                 // Duplicate packet received
                 cout << "Received duplicate packet seq_num: " << recv_packet.seq_num << endl;
 
@@ -189,6 +226,7 @@ void receiveFile(int sockfd, struct sockaddr_in &cliaddr)
             }
             else
             {
+                status = "IGNORED";
                 // Packet outside the window; ignore or send ACK to help sender
                 cout << "Received packet outside window seq_num: " << recv_packet.seq_num << endl;
 
@@ -205,6 +243,12 @@ void receiveFile(int sockfd, struct sockaddr_in &cliaddr)
 
                 sendto(sockfd, &ack_packet, sizeof(Packet), 0, (struct sockaddr *)&cliaddr, len);
                 cout << "Sent ACK for seq_num outside window: " << recv_packet.seq_num << endl;
+            }
+             // Print [recv data] message for data packets
+            if (recv_packet.seq_num >= DATA_SEQ_START)
+            {
+                start_offset = (recv_packet.seq_num - DATA_SEQ_START) * MAXLINE;
+                cout << "[recv data] " << start_offset << " (" << length << ") " << status << endl;
             }
         }
         else
@@ -231,15 +275,30 @@ void receiveFile(int sockfd, struct sockaddr_in &cliaddr)
 
 int main(int argc, char* argv[])
 {
-    if (argc != 2) {
-        cout<<"enter the port first"<<endl;
+    int port = 0;
+    int opt;
+    while ((opt = getopt(argc, argv, "p:")) != -1) {
+        switch (opt) {
+        case 'p':
+            port = atoi(optarg);
+            if (port <= 0 || port > 65535) {
+                cerr << "Invalid port number." << endl;
+                exit(EXIT_FAILURE);
+            }
+            break;
+        default:
+            cerr << "Usage: " << argv[0] << " -p <port>" << endl;
+            exit(EXIT_FAILURE);
+        }
+    }
+
+    if (port == 0) {
+        cerr << "Usage: " << argv[0] << " -p <port>" << endl;
         exit(EXIT_FAILURE);
     }
     int sockfd;
     struct sockaddr_in servaddr, cliaddr;
-    int port = atoi(argv[1]);
-    
-    /// TODO: check the port range
+    // int port = atoi(argv[1]);
 
     // Creating socket file descriptor
     if ((sockfd = socket(AF_INET, SOCK_DGRAM, 0)) < 0)
@@ -265,7 +324,7 @@ int main(int argc, char* argv[])
 
     // Receive the file from the client
     receiveFile(sockfd, cliaddr);
-
+    cout << "[complete]" << endl;
     close(sockfd);
     return 0;
 }
