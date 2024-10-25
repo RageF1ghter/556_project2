@@ -1,10 +1,10 @@
 # Project 2: Reliable File Transfer Protocol
-============================================
+======================================================
 ## Design and implement
    ### language C++
    ### Main file: 
-      + sender.cpp
-      + recevier.cpp
+      + sendfile.cpp
+      + recvfile.cpp
       + Make
    ### Main 
    - getopt(), UDP, Sliding Window
@@ -52,7 +52,7 @@ $ ssh <username>@opal.clear.rice.edu
                     [--reorder <percent>] [--mangle <percent>]
                     [--duplicate <percent>]
      ```
-     $ /usr/bin/netsim --delay 20 --drop 20
+     $ /usr/bin/netsim --delay 10 --drop 10 --reorder 10 --mangle 10 --duplicate 
      ```
 5. Make in both look and clear
 ```
@@ -65,10 +65,6 @@ $ ./recvfile -p 18020
 8. Look run command sender then:
 ```
 $ ./sendfile -r 128.42.124.178:18020 -f ./file.bin
-```
-or
-```
-$ ./sendfile -r opal.clear.rice.edu:18020 -f ./file.bin
 ```
 9. Check if the file was transfered reliable
 ```
