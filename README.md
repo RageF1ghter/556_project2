@@ -51,9 +51,9 @@ $ ssh <username>@opal.clear.rice.edu
    /usr/bin/netsim [--delay <percent>] [--drop <percent>]
                     [--reorder <percent>] [--mangle <percent>]
                     [--duplicate <percent>]
-     ```
-     $ /usr/bin/netsim --delay 10 --drop 10 --reorder 10 --mangle 10 --duplicate 
-     ```
+    ```
+    $ /usr/bin/netsim --delay 10 --drop 10 --reorder 10 --mangle 10 --duplicate 10
+    ```
 5. Make in both look and clear
 ```
 $ make
